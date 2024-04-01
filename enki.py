@@ -1,0 +1,395 @@
+import sys
+import os
+import ninja_syntax as ninja
+
+class Object:
+    def __init__(self, rule : str, source : str, out : str):
+        self.rule   = rule
+        self.source = source
+        self.out    = out
+
+        self.deps  : list[str] = []
+        self.flags : list[str] = []
+
+class Target:
+    def __init__(self, name : str, src_dir : str, rule : str, ext : str):
+        self.name    = name
+        self.src_dir = src_dir
+        self.rule    = rule
+        self.ext     = ext
+
+        if self.ext: self.out_name = self.name + self.ext
+        else: self.out_name = self.name
+
+        self.out = npath_join("$builddir", self.out_name)
+
+        self.flags : dict[list[str]] = dict()
+        self.flags["c"] = []
+
+        self.libs      = []
+        self.deps      = []
+        self.generated = []
+        self.objects   = []
+
+        self.lib_paths    : list[str] = []
+        self.public_flags : dict[list[str]] = dict()
+
+    def generate(self, n : ninja.Writer, parent) -> str:
+        t_flags = dict()
+        for k, v in self.flags.items():
+            if not v: continue
+
+            t_flags[k] = []
+            if k in parent.flags: t_flags[k].extend(parent.flags[k])
+            t_flags[k].extend(v)
+
+        for k, v in t_flags.items(): vars(n, k+"flags", v)
+        n.newline()
+
+        deps = self.deps
+
+        ogen_dep = []
+        if self.generated: ogen_dep.append("$objdir/%s.stamp" % self.name)
+
+        objects : list[str] = []
+        if self.objects:
+            for obj in self.objects:
+
+                source_name = os.path.splitext(obj.source)[0]
+                n.build(obj.out, obj.rule, src(obj.source, self.src_dir),
+                        implicit = obj.deps,
+                        order_only = ogen_dep)
+
+                o_flags = []
+                if obj.flags:
+                    #if obj.rule in parent.flags: o_flags.extend(parent.flags[obj.rule])
+                    if obj.rule in t_flags: o_flags.extend(t_flags[obj.rule])
+                    o_flags.extend(obj.flags)
+                vars(n, "flags", o_flags, indent=1)
+
+                objects.append(obj.out)
+
+            objects.extend(self.deps)
+            n.newline()
+
+        generated : list[str] = []
+        if self.generated:
+            for gen in self.generated:
+                source_name = os.path.splitext(gen.source)[0]
+                n.build(gen.out, gen.rule, src(gen.source, self.src_dir), implicit = gen.deps)
+                vars(n, "flags", gen.flags, indent=1)
+
+                generated.append(gen.out)
+            n.newline()
+
+            sgenerated = " ".join(generated)
+            n.build("$objdir/%s.stamp" % self.name, "touch", order_only = generated)
+            n.newline()
+
+        flibs = []
+        for lib in self.libs:
+            if lib.endswith(".a"):
+                rlib = resolve_variables(lib, parent.variables)
+                if os.path.exists(rlib):
+                    objects.append(rlib)
+                else:
+                    found = False
+                    for path in self.lib_paths:
+                        path = npath_join(path, rlib)
+                        path = resolve_variables(path, parent.variables)
+
+                        if os.path.exists(path):
+                            objects.append(path)
+                            found = True
+                            break
+
+                    if not found:
+                        print("unable to find library: %s" % lib)
+                        exit(1)
+            else:
+                flibs.append(f_lib(lib))
+
+        n.newline()
+        n.build(self.out, self.rule, objects, order_only = generated)
+        vars(n, "libs", flibs, 1)
+
+        if self.ext:
+            n.newline()
+            n.build(npath_join("$builddir", self.name), "phony", self.out)
+
+        print("wrote %s." % os.path.basename(n.output.name))
+
+class Ninja:
+    def __init__(self, name : str, root : str, args : str, target_os : str):
+        self.root      = root
+        self.build_dir = os.path.join(root, name)
+        self.target_os = target_os
+        self.variables : dict[str, str] = dict()
+        self.flags     : dict[str, list[str]] = dict()
+        self.targets   : list[Target] = []
+        self.rules     : dict[str, str] = dict()
+
+        if not os.path.exists(self.build_dir): os.makedirs(self.build_dir)
+
+        path = os.path.join(self.build_dir, "build.ninja")
+        self.writer    = ninja.Writer(open(path, "w"))
+
+
+        obj_dir = npath_join(self.build_dir, "obj")
+        gen_dir = npath_join(self.build_dir, "gen")
+
+        if not os.path.exists(obj_dir): os.makedirs(obj_dir)
+        if not os.path.exists(gen_dir): os.makedirs(gen_dir)
+
+
+        self.variables["root"]     = self.root.replace("\\", "/")
+        self.variables["builddir"] = self.build_dir.replace("\\", "/")
+        self.variables["objdir"]   = obj_dir.replace("\\", "/")
+        self.variables["gendir"]   = gen_dir.replace("\\", "/")
+        self.variables["configure_args"] = " ".join(args)
+
+        self.flags["c"] = []
+
+        for k, v in self.variables.items(): self.writer.variable(k, v)
+        self.writer.newline()
+
+        enki_dir = os.path.dirname(os.path.realpath(__file__))
+        self.rule("configure",
+             command="%s $root/configure.py $configure_args" % sys.executable,
+             description = "regenerate ninja",
+             generator=True)
+
+        self.writer.build("build.ninja", "configure",
+                 implicit = [
+                     "$root/configure.py",
+                     os.path.join(enki_dir, "ninja_syntax.py"),
+                     os.path.join(enki_dir, "enki.py"),
+                 ])
+        self.writer.newline()
+
+
+    def rule(self, name : str, command : str, **kwargs):
+        if name not in self.flags: self.flags[name] = []
+        self.rules[name] = command
+
+        self.writer.rule(name, command, **kwargs)
+
+    def executable(self, name : str, src_dir : str = "") -> Target:
+        ext = None
+        if self.target_os == "win32": ext = ".exe"
+
+        t = Target(name, src_dir, "link", ext)
+        for r, c in self.rules.items(): t.flags[r] = []
+
+        self.targets.append(t)
+        return t
+
+    def library(self, name : str, src_dir : str = "", flags: dict[str,list[str]] = None) -> Target:
+        ext = ".a"
+        if self.target_os == "win32": ext = ".lib"
+
+        t = Target(name, src_dir, "ar", ext)
+        self.targets.append(t)
+
+        if flags:
+            for k, v in flags.items(): t.flags[k] = v
+
+        return t
+
+    def generate(self):
+        json = open(os.path.join(self.build_dir, "compile_commands.json"), "w")
+        json.write("[\n")
+
+        for t in self.targets:
+            src_dir = resolve_variables(t.src_dir, self.variables)
+            src_dir = src_dir.replace("\\", "/")
+
+            for o in t.objects:
+                source = src(o.source, t.src_dir)
+                source = resolve_variables(source, self.variables)
+                source = relpath(source, src_dir)
+
+                command = resolve_variables(self.rules[o.rule], self.variables)
+                command = command.replace("$in", source)
+                command = command.replace("$out", o.out)
+
+                for k, flags in t.flags.items():
+                    sflags = " ".join(flags)
+                    command = command.replace("$%sflags" % k, sflags)
+
+                oflags = " ".join(o.flags)
+                command = command.replace("$flags", oflags)
+
+                for rule in self.flags.keys():
+                    if rule not in t.flags:
+                        command = command.replace(rule, "")
+
+                command = resolve_variables(command, self.variables)
+                command = command.replace('\\', '/')
+                command = command.replace('"', '\\"')
+
+                json.write('\t{\n');
+                json.write('\t\t\"file": "%s",\n' % source)
+                json.write('\t\t\"directory": "%s",\n' % src_dir)
+                json.write('\t\t\"command": "%s",\n' % command)
+                json.write('\t},\n');
+        json.write("]\n")
+
+        self.writer.newline()
+
+        for k, v in self.flags.items(): vars(self.writer, k+"flags", v)
+        self.writer.newline()
+
+        gen_targets : list[str] = []
+        for t in self.targets:
+            filename = t.name + ".ninja"
+            path = os.path.join(self.build_dir, filename)
+
+            t.generate(ninja.Writer(open(path, "w")), self)
+            self.writer.subninja(npath_join("$builddir", filename))
+
+            if t.generated: gen_targets.append("$objdir/%s.stamp" % t.name)
+        if self.targets: self.writer.newline()
+
+        for t in self.targets: self.writer.build(t.name, "phony", t.out)
+
+        if gen_targets:
+            self.writer.build("gen", "phony", gen_targets)
+            self.writer.newline()
+
+        print("wrote %s." % os.path.basename(self.writer.output.name))
+
+
+def npath_join(a, b) -> str: return a + "/" + b
+def normpath(p : str) -> str: return os.path.normpath(p).replace("\\", "/")
+def relpath(path : str, root : str = None) -> str: return os.path.relpath(path, root).replace("\\", "/")
+
+def resolve_variables(s : str, variables : dict[str, str]) -> str:
+    while True:
+        cont = False
+
+        for k, v in variables.items():
+            replaced = s.replace("$"+k, v)
+            if replaced != s: cont = True
+            s = replaced
+
+        if not cont: break
+
+    return s
+
+def src(source : str, src_dir : str):
+    if not source.startswith("$"):
+        return npath_join(src_dir, source)
+
+    return source
+
+
+def shell_escape(s : str) -> str:
+    # This isn't complete, but it's just enough to make NINJA_PYTHON work.
+    if sys.platform == "win32":
+      return s
+    if '"' in s:
+        return "'%s'" % s.replace("'", "\\'")
+    return s
+
+def f_inc(path : str) -> str: return "-I"+normpath(path)
+def f_lib_path(path : str) -> str: return "-L"+normpath(path)
+def f_lib(path : str) -> str: return "-l"+normpath(path)
+def f_lib(path : str) -> str: return "-l"+normpath(path)
+def f_define(var : str) -> str: return "-D"+var
+
+
+def rule(n, name, command, description = None, depfile = None):
+    r = n.rule(name, command, description = description, depfile = depfile)
+    n.newline()
+    return r
+
+def vars(n : ninja.Writer, name : str, flags : list[str], indent=0):
+    if not flags: return
+    n.variable(name, " ".join(shell_escape(flag) for flag in flags), indent)
+
+
+def include_path(t : Target, path : str, public = False) -> str:
+    i = f_inc(path)
+
+    if "c" not in t.flags: t.flags["c"] = []
+    t.flags["c"].append(i)
+
+    if public:
+        if "c" not in t.public_flags: t.public_flags["c"] = []
+        t.public_flags["c"].append(i)
+
+    return i
+
+def lib_path(t : Target, path : str) -> str:
+    t.lib_paths.append(path)
+    l = f_lib_path(path)
+
+    if "link" not in t.flags: t.flags["link"] = []
+    t.flags["link"].append(l)
+
+    return l
+
+def define(t : Target, var : str, public = False) -> str:
+    d = f_define(var)
+    if sys.platform == "win32" and "\"" in d: d = '"%s"' % d.replace('"', '\\"')
+
+    if "c" not in t.flags: t.flags["c"] = []
+    t.flags["c"].append(d)
+
+    if public:
+        if "c" not in t.public_flags: t.public_flags["c"] = []
+        t.public_flags["c"].append(d)
+
+    return d
+
+
+def cxx(t : Target, source : str, deps : list[str] = None, flags : list[str] = None) -> Object:
+    source_name = os.path.splitext(source)[0]
+    if source_name.startswith("$"): source_name = os.path.basename(source)
+    out = npath_join("$objdir", normpath(source_name+".o"))
+
+    o = Object("cxx", source, out)
+    if deps:  o.deps.extend(deps)
+    if flags: o.flags.extend(flags)
+
+    t.objects.append(o)
+    return o
+
+def cc(t : Target, source : str, deps : list[str] = None, flags : list[str] = None) -> Object:
+    source_name = os.path.splitext(source)[0]
+    if source_name.startswith("$"): source_name = os.path.basename(source)
+    out = npath_join("$objdir", normpath(source_name+".o"))
+
+    o = Object("cc", source, out)
+    if deps:  o.deps.extend(deps)
+    if flags: o.flags.extend(flags)
+
+    t.objects.append(o)
+    return o
+
+def lib(t : Target, name : str):
+    t.libs.append(name)
+
+def dep(t : Target, d : Target):
+    t.deps.append(d.out)
+
+    for k, v in d.public_flags.items():
+        if k not in t.flags: t.flags[k] = []
+        t.flags[k].extend(v)
+
+    for lib in d.libs:
+        if lib not in t.libs: t.libs.append(lib)
+
+
+def gh(t : Target, source : str, flecs = False) -> Object:
+    source_name = os.path.splitext(source)[0]
+    out = npath_join("$gendir", normpath(source_name+".h"))
+
+    o = Object("gh", source, out)
+    o.deps.append("$builddir/gh")
+
+    if flecs: o.flags.append("--flecs")
+
+    t.generated.append(o)
+    return o
