@@ -35,6 +35,9 @@ class Target:
         self.public_flags : dict[list[str]] = dict()
 
     def generate(self, n : ninja.Writer, parent) -> str:
+        n.variable("objdir", npath_join(parent.obj_dir, self.name))
+        n.newline()
+
         t_flags = dict()
         for k, v in self.flags.items():
             if not v: continue
@@ -122,7 +125,7 @@ class Target:
 class Ninja:
     def __init__(self, name : str, root : str, args : str, target_os : str):
         self.root      = root
-        self.build_dir = os.path.join(root, name)
+        self.build_dir = npath_join(root, name).replace("\\", "/")
         self.target_os = target_os
         self.variables : dict[str, str] = dict()
         self.flags     : dict[str, list[str]] = dict()
@@ -135,17 +138,17 @@ class Ninja:
         self.writer    = ninja.Writer(open(path, "w"))
 
 
-        obj_dir = npath_join(self.build_dir, "obj")
-        gen_dir = npath_join(self.build_dir, "gen")
+        self.obj_dir = npath_join(self.build_dir, "obj")
+        self.gen_dir = npath_join(self.build_dir, "gen")
 
-        if not os.path.exists(obj_dir): os.makedirs(obj_dir)
-        if not os.path.exists(gen_dir): os.makedirs(gen_dir)
+        if not os.path.exists(self.obj_dir): os.makedirs(self.obj_dir)
+        if not os.path.exists(self.gen_dir): os.makedirs(self.gen_dir)
 
 
         self.variables["root"]     = self.root.replace("\\", "/")
         self.variables["builddir"] = self.build_dir.replace("\\", "/")
-        self.variables["objdir"]   = obj_dir.replace("\\", "/")
-        self.variables["gendir"]   = gen_dir.replace("\\", "/")
+        self.variables["objdir"]   = self.obj_dir.replace("\\", "/")
+        self.variables["gendir"]   = self.gen_dir.replace("\\", "/")
         self.variables["configure_args"] = " ".join(args)
 
         self.flags["c"] = []
@@ -248,7 +251,7 @@ class Ninja:
             t.generate(ninja.Writer(open(path, "w")), self)
             self.writer.subninja(npath_join("$builddir", filename))
 
-            if t.generated: gen_targets.append("$objdir/%s.stamp" % t.name)
+            if t.generated: gen_targets.append(npath_join("$objdir", t.name, "%s.stamp" % t.name))
         if self.targets: self.writer.newline()
 
         for t in self.targets: self.writer.build(t.name, "phony", t.out)
@@ -260,7 +263,7 @@ class Ninja:
         print("wrote %s." % os.path.basename(self.writer.output.name))
 
 
-def npath_join(a, b) -> str: return a + "/" + b
+def npath_join(*args) -> str: return "/".join(args)
 def normpath(p : str) -> str: return os.path.normpath(p).replace("\\", "/")
 def relpath(path : str, root : str = None) -> str: return os.path.relpath(path, root).replace("\\", "/")
 
