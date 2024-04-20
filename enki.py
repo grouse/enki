@@ -312,17 +312,18 @@ def vars(n : ninja.Writer, name : str, flags : list[str], indent=0):
     n.variable(name, " ".join(shell_escape(flag) for flag in flags), indent)
 
 
-def include_path(t : Target, path : str, public = False) -> str:
-    i = f_inc(path)
+def include_path(t : Target, paths : list[str], public = False):
+    if type(paths) is not list: return include_path(t, [paths], public)
 
-    if "c" not in t.flags: t.flags["c"] = []
-    t.flags["c"].append(i)
+    for path in paths:
+        flag = f_inc(path)
 
-    if public:
-        if "c" not in t.public_flags: t.public_flags["c"] = []
-        t.public_flags["c"].append(i)
+        if "c" not in t.flags: t.flags["c"] = []
+        t.flags["c"].append(flag)
 
-    return i
+        if public:
+            if "c" not in t.public_flags: t.public_flags["c"] = []
+            t.public_flags["c"].append(flag)
 
 def lib_path(t : Target, path : str) -> str:
     t.lib_paths.append(path)
@@ -333,43 +334,48 @@ def lib_path(t : Target, path : str) -> str:
 
     return l
 
-def define(t : Target, var : str, public = False) -> str:
-    d = f_define(var)
-    if sys.platform == "win32" and "\"" in d: d = '"%s"' % d.replace('"', '\\"')
+def define(t : Target, vars : list[str], public = False):
+    if type(vars) is not list: return define(t, [vars], public)
 
-    if "c" not in t.flags: t.flags["c"] = []
-    t.flags["c"].append(d)
+    for var in vars:
+        d = f_define(var)
+        if sys.platform == "win32" and "\"" in d:
+            d = '"%s"' % d.replace('"', '\\"')
 
-    if public:
-        if "c" not in t.public_flags: t.public_flags["c"] = []
-        t.public_flags["c"].append(d)
+        if "c" not in t.flags: t.flags["c"] = []
+        t.flags["c"].append(d)
 
-    return d
+        if public:
+            if "c" not in t.public_flags: t.public_flags["c"] = []
+            t.public_flags["c"].append(d)
 
+def cxx(t : Target, sources : list[str], deps : list[str] = None, flags : list[str] = None):
+    if type(sources) is not list: return cxx(t, [sources], deps, flags)
 
-def cxx(t : Target, source : str, deps : list[str] = None, flags : list[str] = None) -> Object:
-    source_name = os.path.splitext(source)[0]
-    if source_name.startswith("$"): source_name = os.path.basename(source)
-    out = npath_join("$objdir", normpath(source_name+".o"))
+    for source in sources:
+        source_name = os.path.splitext(source)[0]
+        if source_name.startswith("$"): source_name = os.path.basename(source)
+        out = npath_join("$objdir", normpath(source_name+".o"))
 
-    o = Object("cxx", source, out)
-    if deps:  o.deps.extend(deps)
-    if flags: o.flags.extend(flags)
+        o = Object("cxx", source, out)
+        if deps:  o.deps.extend(deps)
+        if flags: o.flags.extend(flags)
 
-    t.objects.append(o)
-    return o
+        t.objects.append(o)
 
-def cc(t : Target, source : str, deps : list[str] = None, flags : list[str] = None) -> Object:
-    source_name = os.path.splitext(source)[0]
-    if source_name.startswith("$"): source_name = os.path.basename(source)
-    out = npath_join("$objdir", normpath(source_name+".o"))
+def cc(t : Target, sources : list[str], deps : list[str] = None, flags : list[str] = None):
+    if type(sources) is not list: return cc(t, [sources], deps, flags)
 
-    o = Object("cc", source, out)
-    if deps:  o.deps.extend(deps)
-    if flags: o.flags.extend(flags)
+    for source in sources:
+        source_name = os.path.splitext(source)[0]
+        if source_name.startswith("$"): source_name = os.path.basename(source)
+        out = npath_join("$objdir", normpath(source_name+".o"))
 
-    t.objects.append(o)
-    return o
+        o = Object("cc", source, out)
+        if deps:  o.deps.extend(deps)
+        if flags: o.flags.extend(flags)
+
+        t.objects.append(o)
 
 def lib(t : Target, name : str):
     t.libs.append(name)
@@ -385,14 +391,16 @@ def dep(t : Target, d : Target):
         if lib not in t.libs: t.libs.append(lib)
 
 
-def gh(t : Target, source : str, flecs = False) -> Object:
-    source_name = os.path.splitext(source)[0]
-    out = npath_join("$gendir", normpath(source_name+".h"))
+def gh(t : Target, sources : list[str], flecs = False):
+    if type(sources) is not list: return gh(t, [sources], flecs)
 
-    o = Object("gh", source, out)
-    o.deps.append("$builddir/gh")
+    for source in sources:
+        source_name = os.path.splitext(source)[0]
+        out = npath_join("$gendir", normpath(source_name+".h"))
 
-    if flecs: o.flags.append("--flecs")
+        o = Object("gh", source, out)
+        o.deps.append("$builddir/gh")
 
-    t.generated.append(o)
-    return o
+        if flecs: o.flags.append("--flecs")
+
+        t.generated.append(o)
