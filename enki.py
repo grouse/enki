@@ -126,7 +126,10 @@ class Ninja:
     def __init__(self, name : str, root : str, args : str, target_os : str):
         self.root      = root
         self.build_dir = npath_join(root, name).replace("\\", "/")
+
+        self.host_os = sys.platform
         self.target_os = target_os
+
         self.variables : dict[str, str] = dict()
         self.flags     : dict[str, list[str]] = dict()
         self.targets   : list[Target] = []
@@ -156,6 +159,8 @@ class Ninja:
         for k, v in self.variables.items(): self.writer.variable(k, v)
         self.writer.newline()
 
+
+        # re-generate ninja rule and target
         enki_dir = os.path.dirname(os.path.realpath(__file__))
         self.rule("configure",
              command="%s $root/configure.py $configure_args" % sys.executable,
@@ -169,6 +174,30 @@ class Ninja:
                      os.path.join(enki_dir, "enki.py"),
                  ])
         self.writer.newline()
+
+
+        # generate-header utility
+        if self.host_os == "win32":
+            self.rule("gh", "$builddir/gh.exe $flags $in -o $out -- $cflags",
+                       description = "generate-header $out",
+                       restat = True)
+        elif self.host_os == "linux":
+            self.rule("gh", "$builddir/gh $flags $in -o $out -- $cflags",
+                       description = "generate-header $out",
+                       restat = True)
+
+        gh = self.executable("gh", "$root/tools/enki")
+        if self.host_os == "win32": define(gh, "_CRT_SECURE_NO_WARNINGS");
+        include_path(gh, "$root/external/LLVM/include")
+        cxx(gh, "gh.cpp")
+
+        if self.target_os == "win32":
+            lib(gh, "libclang")
+            lib_path(gh, "$root/external/LLVM/lib/win64")
+        elif self.target_os == "linux":
+            lib(gh, "clang")
+            lib_path(gh, "/usr/lib/llvm-16/lib")
+
 
 
     def rule(self, name : str, command : str, **kwargs):
