@@ -178,25 +178,25 @@ class Ninja:
 
         # generate-header utility
         if self.host_os == "win32":
-            self.rule("gh", "$builddir/gh.exe $flags $in -o $out -- $cflags",
+            self.rule("meta", "$builddir/meta.exe $flags $in -o $out -- $cflags",
                        description = "generate-header $out",
                        restat = True)
         elif self.host_os == "linux":
-            self.rule("gh", "$builddir/gh $flags $in -o $out -- $cflags",
+            self.rule("meta", "$builddir/meta $flags $in -o $out -- $cflags",
                        description = "generate-header $out",
                        restat = True)
 
-        gh = self.executable("gh", "$root/tools/enki")
-        if self.host_os == "win32": define(gh, "_CRT_SECURE_NO_WARNINGS");
-        include_path(gh, "$root/external/LLVM/include")
-        cxx(gh, "gh.cpp")
+        meta = self.executable("meta", "$root/tools/enki")
+        if self.host_os == "win32": define(meta, "_CRT_SECURE_NO_WARNINGS");
+        include_path(meta, "$root/external/LLVM/include")
+        cxx(meta, "meta.cpp")
 
         if self.target_os == "win32":
-            lib(gh, "libclang")
-            lib_path(gh, "$root/external/LLVM/lib/win64")
+            lib(meta, "libclang")
+            lib_path(meta, "$root/external/LLVM/lib/win64")
         elif self.target_os == "linux":
-            lib(gh, "clang")
-            lib_path(gh, "/usr/lib/llvm-16/lib")
+            lib(meta, "clang")
+            lib_path(meta, "/usr/lib/llvm-16/lib")
 
 
 
@@ -420,15 +420,15 @@ def dep(t : Target, d : Target):
         if lib not in t.libs: t.libs.append(lib)
 
 
-def gh(t : Target, sources : list[str], flecs = False):
-    if type(sources) is not list: return gh(t, [sources], flecs)
+def meta(t : Target, sources : list[str], flecs = False):
+    if type(sources) is not list: return meta(t, [sources], flecs)
 
     for source in sources:
         source_name = os.path.splitext(source)[0]
         out = npath_join("$gendir", normpath(source_name+".h"))
 
-        o = Object("gh", source, out)
-        o.deps.append("$builddir/gh")
+        o = Object("meta", source, out)
+        o.deps.append("$builddir/meta")
 
         if flecs: o.flags.append("--flecs")
 

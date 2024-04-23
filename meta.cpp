@@ -1288,7 +1288,7 @@ bool generate_header(const char *out_path, const char *src_path, CXTranslationUn
 
 int print_usage()
 {
-    printf("usage: gh -o <out.path> <src.file> [--flecs]\n");
+    printf("usage: meta -o <out.path> <src.file> [--flecs]\n");
     return 1;
 }
 
