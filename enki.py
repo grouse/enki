@@ -409,15 +409,18 @@ def cc(t : Target, sources : list[str], deps : list[str] = None, flags : list[st
 def lib(t : Target, name : str):
     t.libs.append(name)
 
-def dep(t : Target, d : Target):
-    t.deps.append(d.out)
+def dep(t : Target, deps : list[Target]):
+    if type(deps) is not list: return dep(t, [deps])
 
-    for k, v in d.public_flags.items():
-        if k not in t.flags: t.flags[k] = []
-        t.flags[k].extend(v)
+    for d in deps:
+        t.deps.append(d.out)
 
-    for lib in d.libs:
-        if lib not in t.libs: t.libs.append(lib)
+        for k, v in d.public_flags.items():
+            if k not in t.flags: t.flags[k] = []
+            t.flags[k].extend(v)
+
+        for lib in d.libs:
+            if lib not in t.libs: t.libs.append(lib)
 
 
 def meta(t : Target, sources : list[str], flecs = False):
