@@ -345,7 +345,7 @@ def include_path(t : Target, paths : list[str], public = False):
     if type(paths) is not list: return include_path(t, [paths], public)
 
     for path in paths:
-        flag = f_inc(path)
+        flag = f_inc(src(path, t.src_dir))
 
         if "c" not in t.flags: t.flags["c"] = []
         t.flags["c"].append(flag)
