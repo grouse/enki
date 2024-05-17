@@ -12,16 +12,12 @@ class Object:
         self.flags : list[str] = []
 
 class Target:
-    def __init__(self, name : str, src_dir : str, rule : str, ext : str):
-        self.name    = name
-        self.src_dir = src_dir
-        self.rule    = rule
-        self.ext     = ext
-
-        if self.ext: self.out_name = self.name + self.ext
-        else: self.out_name = self.name
-
-        self.out = npath_join("$builddir", self.out_name)
+    def __init__(self, name : str, type : str, src_dir : str, rule : str, target_os : str):
+        self.name      = name
+        self.src_dir   = src_dir
+        self.rule      = rule
+        self.type      = type
+        self.target_os = target_os
 
         self.flags : dict[list[str]] = dict()
         self.flags["c"] = []
@@ -33,6 +29,16 @@ class Target:
 
         self.lib_paths    : list[str] = []
         self.public_flags : dict[list[str]] = dict()
+
+
+        self.out = ""
+        self.ext = ""
+        if self.type == "exe":
+            if self.target_os == "win32": self.ext = ".exe"
+            self.out = npath_join("$builddir", self.name + self.ext)
+        elif self.type == "lib":
+            self.out = npath_join("$builddir", self.name)
+
 
     def generate(self, n : ninja.Writer, parent) -> str:
         n.variable("objdir", npath_join(parent.obj_dir, self.name))
@@ -48,8 +54,6 @@ class Target:
 
         for k, v in t_flags.items(): vars(n, k+"flags", v)
         n.newline()
-
-        deps = self.deps
 
         ogen_dep = []
         if self.generated: ogen_dep.append("$objdir/%s.stamp" % self.name)
@@ -72,7 +76,8 @@ class Target:
 
                 objects.append(obj.out)
 
-            objects.extend(self.deps)
+            for d in self.deps:
+                if d.type != "exe": objects.append(d.out)
             n.newline()
 
         generated : list[str] = []
@@ -87,6 +92,7 @@ class Target:
 
             sgenerated = " ".join(generated)
             n.build("$objdir/%s.stamp" % self.name, "touch", order_only = generated)
+            n.build("gen.%s" % self.name, "phony", "$objdir/%s.stamp" % self.name)
             n.newline()
 
         flibs = []
@@ -112,6 +118,7 @@ class Target:
             else:
                 flibs.append(f_lib(lib))
 
+
         n.newline()
         n.build(self.out, self.rule, objects, order_only = generated)
         vars(n, "libs", flibs, 1)
@@ -119,6 +126,7 @@ class Target:
         if self.ext:
             n.newline()
             n.build(npath_join("$builddir", self.name), "phony", self.out)
+
 
         print("wrote %s." % os.path.basename(n.output.name))
 
@@ -210,7 +218,7 @@ class Ninja:
         ext = None
         if self.target_os == "win32": ext = ".exe"
 
-        t = Target(name, src_dir, "link", ext)
+        t = Target(name, "exe", src_dir, "link", self.target_os)
         for r, c in self.rules.items(): t.flags[r] = []
 
         self.targets.append(t)
@@ -220,7 +228,7 @@ class Ninja:
         ext = ".a"
         if self.target_os == "win32": ext = ".lib"
 
-        t = Target(name, src_dir, "ar", ext)
+        t = Target(name, "lib", src_dir, "ar", self.target_os)
         self.targets.append(t)
 
         if flags:
@@ -280,14 +288,14 @@ class Ninja:
             t.generate(ninja.Writer(open(path, "w")), self)
             self.writer.subninja(npath_join("$builddir", filename))
 
-            if t.generated: gen_targets.append(npath_join("$objdir", t.name, "%s.stamp" % t.name))
-        if self.targets: self.writer.newline()
+            if t.generated: gen_targets.append("gen.%s" % t.name)
 
+        if self.targets: self.writer.newline()
         for t in self.targets: self.writer.build(t.name, "phony", t.out)
 
         if gen_targets:
-            self.writer.build("gen", "phony", gen_targets)
             self.writer.newline()
+        if gen_targets: self.writer.build("gen.all", "phony", gen_targets)
 
         print("wrote %s." % os.path.basename(self.writer.output.name))
 
@@ -413,7 +421,7 @@ def dep(t : Target, deps : list[Target]):
     if type(deps) is not list: return dep(t, [deps])
 
     for d in deps:
-        t.deps.append(d.out)
+        t.deps.append(d)
 
         for k, v in d.public_flags.items():
             if k not in t.flags: t.flags[k] = []
