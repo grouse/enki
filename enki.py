@@ -141,6 +141,7 @@ class Ninja:
         self.variables : dict[str, str] = dict()
         self.flags     : dict[str, list[str]] = dict()
         self.targets   : list[Target] = []
+        self.test_targets : list[Target] = []
         self.rules     : dict[str, str] = dict()
         self.default   : Target = None
 
@@ -242,6 +243,12 @@ class Ninja:
 
         return t
 
+    def test(self, parent : Target, src_dir : str) -> Target:
+        t = Target(parent.name + ".test", "exe", src_dir, "link", self.target_os)
+        dep(t, parent)
+        self.test_targets.append(t)
+        return t
+
     def generate(self):
         json = open(os.path.join(self.build_dir, "compile_commands.json"), "w")
         json.write("[\n")
@@ -296,12 +303,28 @@ class Ninja:
 
             if t.generated: gen_targets.append("gen.%s" % t.name)
 
+        test_targets : list[str] = []
+        for t in self.test_targets:
+            filename = t.name + ".ninja"
+            path = os.path.join(self.build_dir, filename)
+            self.writer.subninja(npath_join("$builddir", filename))
+
+            w = ninja.Writer(open(path, "w"))
+            t.generate(w, self)
+
+            w.newline()
+            w.build("$builddir/%s/test.stamp" % t.name, "run", "$builddir/%s" % t.name)
+
+            test_targets.append(npath_join("$builddir", "%s/test.stamp" % t.name))
+
+
         if self.targets: self.writer.newline()
         for t in self.targets: self.writer.build(t.name, "phony", t.out)
 
-        if gen_targets:
-            self.writer.newline()
+        if gen_targets or test_targets: self.writer.newline()
         if gen_targets: self.writer.build("gen.all", "phony", gen_targets)
+        if test_targets: self.writer.build("test.all", "phony", test_targets)
+
 
         if self.default:
             self.writer.newline()
