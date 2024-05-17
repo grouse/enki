@@ -222,9 +222,6 @@ class Ninja:
         self.writer.rule(name, command, **kwargs)
 
     def executable(self, name : str, src_dir : str = "") -> Target:
-        ext = None
-        if self.target_os == "win32": ext = ".exe"
-
         t = Target(name, "exe", src_dir, "link", self.target_os)
         for r, c in self.rules.items(): t.flags[r] = []
 
@@ -245,7 +242,9 @@ class Ninja:
 
     def test(self, parent : Target, src_dir : str) -> Target:
         t = Target(parent.name + ".test", "exe", src_dir, "link", self.target_os)
+        for r, c in self.rules.items(): t.flags[r] = []
         dep(t, parent)
+
         self.test_targets.append(t)
         return t
 
