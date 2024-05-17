@@ -184,6 +184,11 @@ class Ninja:
                  ])
         self.writer.newline()
 
+        # generic run utility
+        self.rule("run", "$in $flags",
+                  description = "RUN $in",
+                  pool = "console")
+
 
         # generate-header utility
         if self.host_os == "win32":
