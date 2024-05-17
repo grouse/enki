@@ -142,6 +142,7 @@ class Ninja:
         self.flags     : dict[str, list[str]] = dict()
         self.targets   : list[Target] = []
         self.rules     : dict[str, str] = dict()
+        self.default   : Target = None
 
         if not os.path.exists(self.build_dir): os.makedirs(self.build_dir)
 
@@ -297,6 +298,9 @@ class Ninja:
             self.writer.newline()
         if gen_targets: self.writer.build("gen.all", "phony", gen_targets)
 
+        if self.default:
+            self.writer.newline()
+            self.writer.default(self.default.name)
         print("wrote %s." % os.path.basename(self.writer.output.name))
 
 
