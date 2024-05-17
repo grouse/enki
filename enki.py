@@ -395,9 +395,10 @@ def define(t : Target, vars : list[str], public = False):
             if "c" not in t.public_flags: t.public_flags["c"] = []
             t.public_flags["c"].append(d)
 
-def cxx(t : Target, sources : list[str], deps : list[str] = None, flags : list[str] = None):
+def cxx(t : Target, sources : list[str], deps : list[str] = None, flags : list[str] = None) -> list[Object]:
     if type(sources) is not list: return cxx(t, [sources], deps, flags)
 
+    objs : list[Object] = []
     for source in sources:
         source_name = os.path.splitext(source)[0]
         if source_name.startswith("$"): source_name = os.path.basename(source)
@@ -406,12 +407,15 @@ def cxx(t : Target, sources : list[str], deps : list[str] = None, flags : list[s
         o = Object("cxx", source, out)
         if deps:  o.deps.extend(deps)
         if flags: o.flags.extend(flags)
+        objs.append(o)
 
-        t.objects.append(o)
+    t.objects.extend(objs)
+    return objs
 
-def cc(t : Target, sources : list[str], deps : list[str] = None, flags : list[str] = None):
+def cc(t : Target, sources : list[str], deps : list[str] = None, flags : list[str] = None) -> list[Object]:
     if type(sources) is not list: return cc(t, [sources], deps, flags)
 
+    objs : list[Object] = []
     for source in sources:
         source_name = os.path.splitext(source)[0]
         if source_name.startswith("$"): source_name = os.path.basename(source)
@@ -420,8 +424,10 @@ def cc(t : Target, sources : list[str], deps : list[str] = None, flags : list[st
         o = Object("cc", source, out)
         if deps:  o.deps.extend(deps)
         if flags: o.flags.extend(flags)
+        objs.append(o)
 
-        t.objects.append(o)
+    t.objects.extend(objs)
+    return objs
 
 def lib(t : Target, name : str):
     t.libs.append(name)
