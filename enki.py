@@ -237,13 +237,15 @@ class Ninja:
 
         if flags:
             for k, v in flags.items(): t.flags[k] = v
-
         return t
 
-    def test(self, parent : Target, src_dir : str) -> Target:
+    def test(self, parent : Target, src_dir : str, include_header : str = None) -> Target:
         t = Target(parent.name + ".test", "exe", src_dir, "link", self.target_os)
         for r, c in self.rules.items(): t.flags[r] = []
         dep(t, parent)
+
+        if include_header:
+            t.flags["c"].append("-include " + include_header)
 
         self.test_targets.append(t)
         return t
