@@ -12,10 +12,9 @@ class Object:
         self.flags : list[str] = []
 
 class Target:
-    def __init__(self, name : str, type : str, src_dir : str, rule : str, target_os : str):
+    def __init__(self, name : str, type : str, src_dir : str, target_os : str):
         self.name      = name
         self.src_dir   = src_dir
-        self.rule      = rule
         self.type      = type
         self.target_os = target_os
 
@@ -34,10 +33,17 @@ class Target:
         self.out = ""
         self.ext = ""
         if self.type == "exe":
+            self.rule = "link"
+
             if self.target_os == "win32": self.ext = ".exe"
             self.out = npath_join("$builddir", self.name + self.ext)
         elif self.type == "lib":
-            self.out = npath_join("$builddir", self.name)
+            self.rule = "ar"
+
+            if self.target_os == "win32": self.ext = ".lib"
+            else: self.ext = ".a"
+
+            self.out = npath_join("$builddir", self.name + self.ext)
 
 
     def generate(self, n : ninja.Writer, parent) -> str:
@@ -222,7 +228,7 @@ class Ninja:
         self.writer.rule(name, command, **kwargs)
 
     def executable(self, name : str, src_dir : str = "") -> Target:
-        t = Target(name, "exe", src_dir, "link", self.target_os)
+        t = Target(name, "exe", src_dir, self.target_os)
         for r, c in self.rules.items(): t.flags[r] = []
 
         self.targets.append(t)
@@ -232,7 +238,7 @@ class Ninja:
         ext = ".a"
         if self.target_os == "win32": ext = ".lib"
 
-        t = Target(name, "lib", src_dir, "ar", self.target_os)
+        t = Target(name, "lib", src_dir, self.target_os)
         self.targets.append(t)
 
         if flags:
@@ -240,7 +246,7 @@ class Ninja:
         return t
 
     def test(self, parent : Target, src_dir : str, include_header : str = None) -> Target:
-        t = Target(parent.name + ".test", "exe", src_dir, "link", self.target_os)
+        t = Target(parent.name + ".test", "exe", src_dir, self.target_os)
         for r, c in self.rules.items(): t.flags[r] = []
         dep(t, parent)
 
