@@ -246,7 +246,7 @@ class Ninja:
         return t
 
     def test(self, parent : Target, src_dir : str, include_header : str = None) -> Target:
-        t = Target(parent.name + ".test", "exe", src_dir, self.target_os)
+        t = Target("test.%s" % parent.name, "exe", src_dir, self.target_os)
         for r, c in self.rules.items(): t.flags[r] = []
         dep(t, parent)
 
@@ -310,7 +310,6 @@ class Ninja:
 
             if t.generated: gen_targets.append("gen.%s" % t.name)
 
-        test_targets : list[str] = []
         for t in self.test_targets:
             filename = t.name + ".ninja"
             path = os.path.join(self.build_dir, filename)
@@ -320,13 +319,15 @@ class Ninja:
             t.generate(w, self)
 
             w.newline()
-            w.build("$builddir/%s/test.stamp" % t.name, "run", "$builddir/%s" % t.name)
-
-            test_targets.append(npath_join("$builddir", "%s/test.stamp" % t.name))
-
+            w.build("$builddir/%s/test.stamp" % t.name, "run", "$builddir/{}{}".format(t.name, t.ext))
 
         if self.targets: self.writer.newline()
         for t in self.targets: self.writer.build(t.name, "phony", t.out)
+
+        test_targets : list[str] = []
+        for t in self.test_targets:
+            self.writer.build(t.name, "phony", npath_join("$builddir", t.name))
+            test_targets.append(t.name)
 
         if gen_targets or test_targets: self.writer.newline()
         if gen_targets: self.writer.build("gen.all", "phony", gen_targets)
