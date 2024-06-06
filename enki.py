@@ -216,8 +216,9 @@ class Ninja:
             lib(meta, "libclang")
             lib_path(meta, "$root/external/LLVM/lib/win64")
         elif self.target_os == "linux":
+            llvm_path = os.getenv("LLVM_PATH", "/usr/lib/llvm-16")
             lib(meta, "clang")
-            lib_path(meta, "/usr/lib/llvm-16/lib")
+            lib_path(meta, os.path.join(llvm_path, "lib"))
 
 
 
