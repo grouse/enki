@@ -478,8 +478,8 @@ def dep(t : Target, deps : list[Target]):
             if lib not in t.libs: t.libs.append(lib)
 
 
-def meta(t : Target, sources : list[str], flecs = False):
-    if type(sources) is not list: return meta(t, [sources], flecs)
+def meta(t : Target, sources : list[str], flags : list[str] = None):
+    if type(sources) is not list: return meta(t, [sources], flags)
 
     for source in sources:
         source_name = os.path.splitext(source)[0]
@@ -487,7 +487,6 @@ def meta(t : Target, sources : list[str], flecs = False):
 
         o = Object("meta", source, out)
         o.deps.append("$builddir/meta")
-
-        if flecs: o.flags.append("--flecs")
+        if flags: o.flags.extend(flags)
 
         t.generated.append(o)
