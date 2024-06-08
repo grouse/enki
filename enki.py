@@ -213,14 +213,11 @@ class Ninja:
         cxx(meta, "meta.cpp")
 
         if self.target_os == "win32":
-            lib(meta, "libclang")
             lib_path(meta, "$root/external/LLVM/lib/win64")
+            lib(meta, "libclang")
         elif self.target_os == "linux":
-            llvm_path = os.getenv("LLVM_PATH", "/usr/lib/llvm-16")
+            lib_path(meta, "$root/external/LLVM/lib/linux")
             lib(meta, "clang")
-            lib_path(meta, os.path.join(llvm_path, "lib"))
-
-
 
     def rule(self, name : str, command : str, **kwargs):
         if name not in self.flags: self.flags[name] = []
