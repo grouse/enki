@@ -123,6 +123,7 @@ struct {
     bool generate_flecs = false;
 } opts;
 
+const char *debug_trace_file = nullptr;
 const char *debug_trace_cursor = nullptr;
 int debug_print_enabled = 0;
 
@@ -417,6 +418,18 @@ int clang_strcmp(CXString lhs, CXString rhs)
     return strcmp(clang_getCString(lhs), clang_getCString(rhs));
 }
 
+int clang_str_ends_with(CXString lhs, const char *rhs)
+{
+    if (clang_String_isNull(lhs)) return !rhs || rhs[0] == '\0' ? 0 : -1;
+    if (!rhs || rhs[0] == '\0') return -1;
+
+    const char *lhs_sz = clang_getCString(lhs);
+    size_t lhs_len = strlen(lhs_sz), rhs_len = strlen(rhs);
+    if (lhs_len < rhs_len) return -1;
+
+    return strcmp(lhs_sz+lhs_len-rhs_len, rhs);
+}
+
 bool clang_isArray(CXType type)
 {
     return
@@ -539,6 +552,8 @@ bool clang_Cursor_isInFile(CXCursor cursor, const char *src, const char *header)
     const char *c_filename_sz = clang_getCString(c_filename_s);
     if (c_filename_sz && strcmp(c_filename_sz, src) == 0) return true;
     if (c_filename_sz && strcmp(c_filename_sz, header) == 0) return true;
+
+    DEBUG_LOG("skipping cursor in file: %s, not in src (%s) or its header (%s)", c_filename_sz, src, header);
     return false;
 }
 
@@ -957,9 +972,16 @@ CXChildVisitResult clang_visitor(
     CXString cursor_s = clang_getCursorSpelling(cursor);
     defer { clang_disposeString(cursor_s); };
 
-    if (debug_trace_cursor && clang_strcmp(cursor_s, debug_trace_cursor) == 0) {
-        debug_print_enabled++;
+    if (debug_trace_file) {
+        CXString filename = clang_Cursor_getFilename(cursor);
+        defer { clang_disposeString(filename); };
+        if (clang_str_ends_with(filename, debug_trace_file) == 0) {
+            debug_print_enabled=1;
+        }
     }
+
+    if (debug_trace_cursor && clang_strcmp(cursor_s, debug_trace_cursor) == 0)
+        debug_print_enabled=1;
 
     CXString c_filename = clang_Cursor_getFilename(cursor);
     CXString p_filename = clang_Cursor_getFilename(parent);
