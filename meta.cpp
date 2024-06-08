@@ -1163,7 +1163,6 @@ bool generate_header(const char *out_path, const char *src_path, CXTranslationUn
     snprintf(name, sizeof name, "%.*s", src_name_len, src_filename);
     for (char *p = name; *p; p++) *p = toupper(*p);
 
-
     clang_visitChildren(cursor, clang_visitor, &data);
 
     //if (public_proc_decls)
@@ -1332,6 +1331,16 @@ int main(int argc, char **argv)
                 fargc = argc - i - 1;
                 fargv = argv + i + 1;
                 break;
+            } else if (argv[i][1] == '-') {
+                char *p = &argv[i][2];
+                if (strcmp(p, "trace-cursor") == 0) {
+                    debug_trace_cursor = argv[++i];
+                } else if (strcmp(p, "trace-file") == 0) {
+                    debug_trace_file = argv[++i];
+                    printf("trace-file: '%s'\n", debug_trace_file);
+                } else {
+                    printf("unhandled argv[%d]:%s\n", i, argv[i]);
+                }
             } else {
                 printf("unhandled argv[%d]:%s\n", i, argv[i]);
             }
