@@ -550,6 +550,27 @@ bool clang_Cursor_isInFile(CXCursor cursor, const char *src, const char *header)
     defer { clang_disposeString(c_filename_s); };
 
     const char *c_filename_sz = clang_getCString(c_filename_s);
+    if (c_filename_sz) {
+        for (auto *lhs = c_filename_sz, *rhs = src; *lhs && *rhs; lhs++, rhs++) {
+            if (*lhs == *rhs) continue;
+            if (*lhs == '/' && *rhs == '\\') continue;
+            if (*lhs == '\\' && *rhs == '/') continue;
+            goto not_in_src;
+        }
+
+        return true;
+    not_in_src:;
+
+        for (auto *lhs = c_filename_sz, *rhs = header; *lhs && *rhs; lhs++, rhs++) {
+            if (*lhs == *rhs) continue;
+            if (*lhs == '/' && *rhs == '\\') continue;
+            if (*lhs == '\\' && *rhs == '/') continue;
+            goto not_in_header;
+        }
+
+        return true;
+    not_in_header:;
+    }
     if (c_filename_sz && strcmp(c_filename_sz, src) == 0) return true;
     if (c_filename_sz && strcmp(c_filename_sz, header) == 0) return true;
 
