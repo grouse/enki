@@ -196,6 +196,10 @@ class Ninja:
                   description = "RUN $in",
                   pool = "console")
 
+        # file util rules
+        if self.host_os == "linux":
+            self.rule("copy", "cp $in $out", description = "copy")
+            self.rule("symlink", "ln -s $in $out", description = "symlink")
 
         # generate-header utility
         if self.host_os == "win32":
@@ -376,7 +380,6 @@ def f_lib(path : str) -> str: return "-l"+normpath(path)
 def f_lib(path : str) -> str: return "-l"+normpath(path)
 def f_define(var : str) -> str: return "-D"+var
 
-
 def rule(n, name, command, description = None, depfile = None):
     r = n.rule(name, command, description = description, depfile = depfile)
     n.newline()
@@ -460,6 +463,15 @@ def cc(t : Target, sources : list[str], deps : list[str] = None, flags : list[st
 
 def lib(t : Target, name : str):
     t.libs.append(name)
+
+
+def copy(t : Target, src : str, dst : str):
+    obj = Object("copy", src,  dst)
+    t.objects.append(obj)
+
+def symlink(t : Target, src : str, dst : str):
+    obj = Object("symlink", src,  dst)
+    t.objects.append(obj)
 
 def dep(t : Target, deps : list[Target]):
     if type(deps) is not list: return dep(t, [deps])
