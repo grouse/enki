@@ -22,13 +22,13 @@ class Target:
         self.flags["c"] = []
 
         self.libs      = []
+        self.dylibs    = []
         self.deps      = []
         self.generated = []
         self.objects   = []
 
         self.lib_paths    : list[str] = []
         self.public_flags : dict[list[str]] = dict()
-
 
         self.out = ""
         self.ext = ""
@@ -50,6 +50,8 @@ class Target:
         n.variable("objdir", npath_join(parent.obj_dir, self.name))
         n.newline()
 
+        if self.dylibs: self.flags["link"].append("-Wl,-rpath,'$$ORIGIN'")
+
         t_flags = dict()
         for k, v in self.flags.items():
             if not v: continue
@@ -64,18 +66,46 @@ class Target:
         ogen_dep = []
         if self.generated: ogen_dep.append("$objdir/%s.stamp" % self.name)
 
+        flibs   : list[str] = []
+
+        for lib in self.dylibs:
+            dylib = lib
+            if self.target_os == "linux":
+                if not dylib.endswith(".so"): dylib = dylib + ".so"
+                if not dylib.startswith("lib"): dylib = "lib" + dylib
+            elif self.target_os == "win32":
+                if not dylib.endswith(".dll"): dylib = dylib + ".dll"
+
+            flibs.append(f_lib(lib))
+
+            # for path in self.lib_paths:
+            #     fpath = resolve_variables(path, parent.variables)
+            #     fpath = os.path.join(fpath, dylib)
+            #
+            #     if os.path.exists(fpath):
+            #         lpath = os.path.join(path, dylib)
+            #         if os.path.islink(fpath):
+            #             rpath = os.path.realpath(fpath)
+            #             print("dylib: {}, fpath: {}, lpath: {}, rpath: {}".format(dylib, fpath, lpath, rpath))
+            #
+            #         copy(self, lpath, "$builddir/{}".format(dylib))
+            #         break
+
         objects : list[str] = []
         if self.objects:
             for obj in self.objects:
 
+                order_only = []
+                if obj.rule == "cxx" or obj.rule == "cc":
+                    order_only.extend(ogen_dep)
+
                 source_name = os.path.splitext(obj.source)[0]
                 n.build(obj.out, obj.rule, src(obj.source, self.src_dir),
                         implicit = obj.deps,
-                        order_only = ogen_dep)
+                        order_only = order_only)
 
                 o_flags = []
                 if obj.flags:
-                    #if obj.rule in parent.flags: o_flags.extend(parent.flags[obj.rule])
                     if obj.rule in t_flags: o_flags.extend(t_flags[obj.rule])
                     o_flags.extend(obj.flags)
                 vars(n, "flags", o_flags, indent=1)
@@ -86,22 +116,6 @@ class Target:
                 if d.type != "exe": objects.append(d.out)
             n.newline()
 
-        generated : list[str] = []
-        if self.generated:
-            for gen in self.generated:
-                source_name = os.path.splitext(gen.source)[0]
-                n.build(gen.out, gen.rule, src(gen.source, self.src_dir), implicit = gen.deps)
-                vars(n, "flags", gen.flags, indent=1)
-
-                generated.append(gen.out)
-            n.newline()
-
-            sgenerated = " ".join(generated)
-            n.build("$objdir/%s.stamp" % self.name, "touch", order_only = generated)
-            n.build("gen.%s" % self.name, "phony", "$objdir/%s.stamp" % self.name)
-            n.newline()
-
-        flibs = []
         for lib in self.libs:
             if lib.endswith(".a"):
                 rlib = resolve_variables(lib, parent.variables)
@@ -124,6 +138,20 @@ class Target:
             else:
                 flibs.append(f_lib(lib))
 
+        generated : list[str] = []
+        if self.generated:
+            for gen in self.generated:
+                source_name = os.path.splitext(gen.source)[0]
+                n.build(gen.out, gen.rule, src(gen.source, self.src_dir), implicit = gen.deps)
+                vars(n, "flags", gen.flags, indent=1)
+
+                generated.append(gen.out)
+            n.newline()
+
+            sgenerated = " ".join(generated)
+            n.build("$objdir/%s.stamp" % self.name, "touch", order_only = generated)
+            n.build("gen.%s" % self.name, "phony", "$objdir/%s.stamp" % self.name)
+            n.newline()
 
         n.newline()
         n.build(self.out, self.rule, objects, order_only = generated)
@@ -132,7 +160,6 @@ class Target:
         if self.ext:
             n.newline()
             n.build(npath_join("$builddir", self.name), "phony", self.out)
-
 
         print("wrote %s." % os.path.basename(n.output.name))
 
@@ -213,6 +240,7 @@ class Ninja:
 
         meta = self.executable("meta", "$root/tools/enki")
         if self.host_os == "win32": define(meta, "_CRT_SECURE_NO_WARNINGS");
+        lib_path(meta, "$builddir")
         include_path(meta, "$root/external/LLVM/include")
         cxx(meta, "meta.cpp")
 
@@ -220,8 +248,10 @@ class Ninja:
             lib_path(meta, "$root/external/LLVM/lib/win64")
             lib(meta, "libclang")
         elif self.target_os == "linux":
-            lib_path(meta, "$root/external/LLVM/lib/linux")
-            lib(meta, "clang")
+            copy(meta, "$root/external/LLVM/lib/linux/libclang.so.17.0.2", "$builddir/libclang.so.17.0.2")
+            symlink(meta, "$builddir/libclang.so.17.0.2", "$builddir/libclang.so.17")
+            symlink(meta, "$builddir/libclang.so.17.0.2", "$builddir/libclang.so")
+            dylib(meta, "clang")
 
     def rule(self, name : str, command : str, **kwargs):
         if name not in self.flags: self.flags[name] = []
@@ -464,6 +494,8 @@ def cc(t : Target, sources : list[str], deps : list[str] = None, flags : list[st
 def lib(t : Target, name : str):
     t.libs.append(name)
 
+def dylib(t : Target, name : str):
+    t.dylibs.append(name)
 
 def copy(t : Target, src : str, dst : str):
     obj = Object("copy", src,  dst)
