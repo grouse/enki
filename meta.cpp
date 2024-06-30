@@ -245,6 +245,8 @@ struct ClangVisitorData {
         const char *src;
     } in;
 
+    const char *out_dir;
+
     struct {
         CXToken *tokens;
         unsigned token_count;
@@ -608,10 +610,10 @@ bool clang_Cursor_isInFile(CXCursor cursor, const char *src, const char *header)
         return true;
     not_in_header:;
     }
+
     if (c_filename_sz && strcmp(c_filename_sz, src) == 0) return true;
     if (c_filename_sz && strcmp(c_filename_sz, header) == 0) return true;
 
-    DEBUG_LOG("skipping cursor in file: %s, not in src (%s) or its header (%s)", c_filename_sz, src, header);
     return false;
 }
 
@@ -1054,6 +1056,15 @@ CXChildVisitResult clang_visitor(
     };
 
 
+    if (clang_path_starts_with(c_filename, cursor_d.out_dir) == 0) {
+        DEBUG_LOG("skipping cursor in output dir: %s", clang_getCString(c_filename));
+        return CXChildVisit_Continue;
+    }
+
+    if (clang_strcmp(c_filename, p_filename) != 0) {
+        DEBUG_LOG("cursor [%s] in file: %s", cursor_sz, clang_getCString(c_filename));
+    }
+
     if (clang_Cursor_hasAttrs(cursor))
         clang_visitChildren(cursor, clang_getAttributes, &cursor_d.attributes);
 
@@ -1211,9 +1222,10 @@ bool generate_header(const char *out_path, const char *src_path, CXTranslationUn
     *p++ = 'h'; *p = '\0';
 
     ClangVisitorData data{
-        .tu     = tu,
-        .in.h   = h_path,
-        .in.src = src_path,
+        .tu      = tu,
+        .in.h    = h_path,
+        .in.src  = src_path,
+        .out_dir = out_path,
     };
 
     char internal_out_path[4096];
