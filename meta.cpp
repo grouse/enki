@@ -121,6 +121,7 @@ Defer<F> operator+ (DeferDummy, F&& f)
 
 struct {
     bool generate_flecs = false;
+    bool generate_tests = false;
 } opts;
 
 const char *debug_trace_file = nullptr;
@@ -231,9 +232,12 @@ bool eat_whitespace(const char **p, const char *end)
 }
 
 struct CursorAttributes {
-    int exported  : 1;
-    int internal  : 1;
+    int exported     : 1;
+    int internal     : 1;
     int in_namespace : 1;
+    int test         : 1;
+
+    const char *category;
 };
 
 struct ClangVisitorData {
@@ -348,6 +352,8 @@ struct EnumDecl {
 };
 
 struct ProcDecl {
+    const char *name;
+
     CXCursor cursor;
     CursorAttributes attributes;
 
@@ -392,6 +398,7 @@ struct EnumTagDecl{
 // TODO(jesper): at least the struct decls really ought to be a hashmap at this point because it'll contain every structure in the translation unit, regardless of whether or not we need the type info, because we can't really back-track if we determine we need it
 List<StructDecl> struct_decls{};
 List<EnumDecl> enum_decls{};
+List<ProcDecl> test_proc_decls{};
 List<ProcDecl> internal_proc_decls{};
 List<ProcDecl> public_proc_decls{};
 
@@ -495,6 +502,13 @@ CXChildVisitResult clang_getAttributes(
         } else if (clang_strcmp(cursor_name, "internal") == 0) {
             data->exported = true;
             data->internal = true;
+        } else if (clang_strcmp(cursor_name, "test") == 0) {
+            data->exported = true;
+            data->test = true;
+        } else if (clang_str_starts_with(cursor_name, "category:") == 0) {
+            const char *category = clang_getCString(cursor_name)+9;
+            DEBUG_LOG("category: %s", category);
+            data->category = strdup(category);
         } else {
             DEBUG_LOG("unknown annotation: %s",  clang_getCString(cursor_name));
         }
@@ -1076,14 +1090,21 @@ CXChildVisitResult clang_visitor(
     } else if (cursor_kind == CXCursor_FunctionDecl) {
         if (!cursor_d.attributes.exported) return CXChildVisit_Continue;
 
-        if (!clang_Cursor_isInFile(cursor, in->src, in->h)) {
+        if (!cursor_d.attributes.test && !clang_Cursor_isInFile(cursor, in->src, in->h)) {
+            DEBUG_LOG("skipping cursor: '%s', not in src (%s) or its header (%s)", cursor_sz, in->src, in->h);
             return CXChildVisit_Continue;
         }
 
+        const char *proc_decl_sz = cursor_sz;
         if (cursor_d.attributes.internal) {
-            list_push(&internal_proc_decls, cursor, cursor_d.attributes);
+            DEBUG_LOG("internal proc: %s", proc_decl_sz);
+            list_push(&internal_proc_decls, strdup(proc_decl_sz), cursor, cursor_d.attributes);
+        } else if (cursor_d.attributes.test) {
+            DEBUG_LOG("test proc: %s", proc_decl_sz);
+            list_push(&test_proc_decls, strdup(proc_decl_sz), cursor, cursor_d.attributes);
         } else {
-            list_push(&public_proc_decls, cursor, cursor_d.attributes);
+            DEBUG_LOG("public proc: %s", proc_decl_sz);
+            list_push(&public_proc_decls, strdup(proc_decl_sz), cursor, cursor_d.attributes);
         }
     } else if (cursor_kind == CXCursor_StructDecl) {
         CXType type = clang_getCursorType(cursor);
@@ -1234,9 +1255,13 @@ bool generate_header(const char *out_path, const char *src_path, CXTranslationUn
     char flecs_out_path[4096];
     snprintf(flecs_out_path, sizeof flecs_out_path, "%s/flecs", out_path);
 
+    char tests_out_path[4096];
+    snprintf(tests_out_path, sizeof tests_out_path, "%s/tests", out_path);
+
     std::filesystem::create_directories(out_path);
     std::filesystem::create_directories(internal_out_path);
-    std::filesystem::create_directories(flecs_out_path);
+    if (opts.generate_tests) std::filesystem::create_directories(tests_out_path);
+    if (opts.generate_flecs) std::filesystem::create_directories(flecs_out_path);
 
     char name[4096];
     snprintf(name, sizeof name, "%.*s", src_name_len, src_filename);
@@ -1283,6 +1308,38 @@ bool generate_header(const char *out_path, const char *src_path, CXTranslationUn
         for (auto decl : internal_proc_decls) {
             emit_proc_decl(f , tu, decl->cursor, decl->attributes);
         }
+    }
+
+    if (opts.generate_tests /* && test_proc_decls */) {
+        char path[4096];
+        snprintf(path, sizeof path, "%s/%.*s.h", tests_out_path, src_name_len, src_filename);
+
+        FILE *f = nullptr;
+        if (f = fopen(path, "wb"); !f) {
+            FERROR("failed to open out.file '%s': %s\n", path, strerror(errno));
+        }
+        defer { fclose(f); };
+
+        emit_include_guard_begin(f, nullptr, name, "TEST");
+        defer { emit_include_guard_end(f, nullptr, name, "TEST"); };
+
+        for (auto decl : test_proc_decls) {
+            emit_proc_decl(f , tu, decl->cursor, decl->attributes);
+        }
+        fprintf(f, "\n");
+
+        fprintf(f, "TestSuite %s_tests[] = {\n", name);
+        for (auto decl : test_proc_decls) {
+            const char *short_name = strchr(decl->name, '_');
+            short_name = short_name ? short_name+1 : decl->name;
+
+            if (decl->attributes.category) {
+                fprintf(f, "\t{ \"%s\", %s, \"%s\" },\n", short_name, decl->name, decl->attributes.category);
+            } else {
+                fprintf(f, "\t{ \"%s\", %s },\n", short_name, decl->name);
+            }
+        }
+        fprintf(f, "};\n");
     }
 
     if (opts.generate_flecs) {
@@ -1402,24 +1459,25 @@ int main(int argc, char **argv)
 
     for (int i = 1; i < argc; i++) {
         if (argv[i][0] == '-') {
-            if (argv[i][1] == '-' && strcmp(&argv[i][2], "flecs") == 0) {
-                opts.generate_flecs = true;
-            } else if (argv[i][1] == 'o') {
-                out_path = argv[++i];
-            } else if (argv[i][1] == '-' && argv[i][2] == '\0') {
-                fargc = argc - i - 1;
-                fargv = argv + i + 1;
-                break;
-            } else if (argv[i][1] == '-') {
+            if (argv[i][1] == '-') {
                 char *p = &argv[i][2];
-                if (strcmp(p, "trace-cursor") == 0) {
+                if (strcmp(p, "flecs") == 0) opts.generate_flecs = true;
+                else if (strcmp(p, "tests") == 0) opts.generate_tests = true;
+                else if (strcmp(p, "trace-cursor") == 0) {
                     debug_trace_cursor = argv[++i];
+                    printf("trace-file: '%s'\n", debug_trace_cursor);
                 } else if (strcmp(p, "trace-file") == 0) {
                     debug_trace_file = argv[++i];
                     printf("trace-file: '%s'\n", debug_trace_file);
+                } else if (*p == '\0') {
+                    fargc = argc - i - 1;
+                    fargv = argv + i + 1;
+                    break;
                 } else {
                     printf("unhandled argv[%d]:%s\n", i, argv[i]);
                 }
+            } else if (argv[i][1] == 'o') {
+                out_path = argv[++i];
             } else {
                 printf("unhandled argv[%d]:%s\n", i, argv[i]);
             }
