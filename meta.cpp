@@ -418,6 +418,43 @@ int clang_strcmp(CXString lhs, CXString rhs)
     return strcmp(clang_getCString(lhs), clang_getCString(rhs));
 }
 
+int clang_path_starts_with(CXString lhs, const char *rhs)
+{
+    if (clang_String_isNull(lhs)) return !rhs || rhs[0] == '\0' ? 0 : -1;
+    if (!rhs || rhs[0] == '\0') return -1;
+
+    const char *lhs_sz = clang_getCString(lhs);
+    while (*lhs_sz && *rhs) {
+        if (*lhs_sz != *rhs &&
+            (*lhs_sz != '/' || *rhs != '\\') &&
+            (*lhs_sz != '\\' || *rhs != '/'))
+        {
+            return -1;
+        }
+
+        lhs_sz++;
+        rhs++;
+    }
+
+    return *rhs == '\0' ? 0 : -1;
+}
+
+int clang_str_starts_with(CXString lhs, const char *rhs)
+{
+    if (clang_String_isNull(lhs)) return !rhs || rhs[0] == '\0' ? 0 : -1;
+    if (!rhs || rhs[0] == '\0') return -1;
+
+    const char *lhs_sz = clang_getCString(lhs);
+    while (*lhs_sz && *rhs) {
+        if (*lhs_sz != *rhs) return -1;
+
+        lhs_sz++;
+        rhs++;
+    }
+
+    return *rhs == '\0' ? 0 : -1;
+}
+
 int clang_str_ends_with(CXString lhs, const char *rhs)
 {
     if (clang_String_isNull(lhs)) return !rhs || rhs[0] == '\0' ? 0 : -1;
