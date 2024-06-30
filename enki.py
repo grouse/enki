@@ -433,14 +433,19 @@ def include_path(t : Target, paths : list[str], public = False):
             if "c" not in t.public_flags: t.public_flags["c"] = []
             t.public_flags["c"].append(flag)
 
-def lib_path(t : Target, path : str) -> str:
-    t.lib_paths.append(path)
-    l = f_lib_path(path)
+def lib_path(t : Target, paths : list[str], public = False) -> str:
+    if type(paths) is not list: return lib_path(t, [paths], public)
 
-    if "link" not in t.flags: t.flags["link"] = []
-    t.flags["link"].append(l)
+    for path in paths:
+        t.lib_paths.append(path)
+        flag = f_lib_path(path)
 
-    return l
+        if "link" not in t.flags: t.flags["link"] = []
+        t.flags["link"].append(flag)
+
+        if public:
+            if "link" not in t.public_flags: t.public_flags["link"] = []
+            t.public_flags["link"].append(flag)
 
 def define(t : Target, vars : list[str], public = False):
     if type(vars) is not list: return define(t, [vars], public)
