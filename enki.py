@@ -351,14 +351,14 @@ class Ninja:
             t.generate(w, self)
 
             w.newline()
-            w.build("$builddir/%s/test.stamp" % t.name, "run", "$builddir/{}{}".format(t.name, t.ext))
+            w.build("$builddir/%s.stamp" % t.name, "run", "$builddir/{}{}".format(t.name, t.ext))
 
         if self.targets: self.writer.newline()
         for t in self.targets: self.writer.build(t.name, "phony", t.out)
 
         test_targets : list[str] = []
         for t in self.test_targets:
-            self.writer.build(t.name, "phony", npath_join("$builddir", t.name))
+            self.writer.build(t.name, "phony", npath_join("$builddir", "%s.stamp" % t.name))
             test_targets.append(t.name)
 
         if gen_targets or test_targets: self.writer.newline()
