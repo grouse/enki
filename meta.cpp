@@ -1024,26 +1024,35 @@ CXChildVisitResult clang_visitor(
     CXTranslationUnit tu = cursor_d.tu;
     auto *in = &cursor_d.in;
 
-    int saved_debug_print_enabled = debug_print_enabled;
-    defer { debug_print_enabled = saved_debug_print_enabled; };
-
-    CXString cursor_s = clang_getCursorSpelling(cursor);
-    defer { clang_disposeString(cursor_s); };
-
-    if (debug_trace_file) {
-        CXString filename = clang_Cursor_getFilename(cursor);
-        defer { clang_disposeString(filename); };
-        if (clang_str_ends_with(filename, debug_trace_file) == 0) {
-            debug_print_enabled=1;
-        }
-    }
-
-    if (debug_trace_cursor && clang_strcmp(cursor_s, debug_trace_cursor) == 0)
-        debug_print_enabled=1;
-
     CXString c_filename = clang_Cursor_getFilename(cursor);
     CXString p_filename = clang_Cursor_getFilename(parent);
     defer { clang_disposeString(c_filename); clang_disposeString(p_filename); };
+
+    CXString cursor_s = clang_getCursorSpelling(cursor);
+    const char *cursor_sz = clang_getCString(cursor_s);
+    defer { clang_disposeString(cursor_s); };
+
+    int tracing_file = 0;
+    if (debug_trace_file) {
+        if (clang_str_ends_with(c_filename, debug_trace_file) == 0) {
+            debug_print_enabled++;
+            tracing_file = 1;
+        }
+    }
+
+    int tracing_cursor = 0;
+    if (debug_trace_cursor &&
+        clang_strcmp(cursor_s, debug_trace_cursor) == 0)
+    {
+        debug_print_enabled++;
+        tracing_cursor++;
+    }
+
+    defer {
+        if (tracing_file) debug_print_enabled--;
+        if (tracing_cursor) debug_print_enabled--;
+    };
+
 
     if (clang_Cursor_hasAttrs(cursor))
         clang_visitChildren(cursor, clang_getAttributes, &cursor_d.attributes);
