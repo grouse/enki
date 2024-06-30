@@ -841,7 +841,7 @@ bool parse_decl_macro(List<T> *decls, CXTranslationUnit tu, CXCursor cursor, int
     return true;
 }
 
-void write_proc_decl(FILE *f, CXTranslationUnit tu, CXCursor cursor, CursorAttributes attributes)
+void emit_proc_decl(FILE *f, CXTranslationUnit tu, CXCursor cursor, CursorAttributes attributes)
 {
     CXString cursor_s = clang_getCursorSpelling(cursor);
     defer { clang_disposeString(cursor_s); };
@@ -1246,10 +1246,10 @@ bool generate_header(const char *out_path, const char *src_path, CXTranslationUn
 
     //if (public_proc_decls)
     {
-        FILE *f = nullptr;
-
         char path[4096];
         snprintf(path, sizeof path, "%s/%.*s.h", out_path, src_name_len, src_filename);
+
+        FILE *f = nullptr;
         if (f = fopen(path, "wb"); !f) {
             FERROR("failed to open out.file '%s': %s\n", path, strerror(errno));
         }
@@ -1262,16 +1262,16 @@ bool generate_header(const char *out_path, const char *src_path, CXTranslationUn
         fprintf(f, "using namespace PUBLIC;\n\n");
 
         for (auto decl : public_proc_decls) {
-            write_proc_decl(f, tu, decl->cursor, decl->attributes);
+            emit_proc_decl(f, tu, decl->cursor, decl->attributes);
         }
     }
 
     //if (internal_proc_decls)
     {
-        FILE *f = nullptr;
-
         char path[4096];
         snprintf(path, sizeof path, "%s/%.*s.h", internal_out_path, src_name_len, src_filename);
+
+        FILE *f = nullptr;
         if (f = fopen(path, "wb"); !f) {
             FERROR("failed to open out.file '%s': %s\n", path, strerror(errno));
         }
@@ -1281,7 +1281,7 @@ bool generate_header(const char *out_path, const char *src_path, CXTranslationUn
         defer { emit_include_guard_end(f, nullptr, name, "INTERNAL"); };
 
         for (auto decl : internal_proc_decls) {
-            write_proc_decl(f , tu, decl->cursor, decl->attributes);
+            emit_proc_decl(f , tu, decl->cursor, decl->attributes);
         }
     }
 
