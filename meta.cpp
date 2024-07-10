@@ -1426,7 +1426,7 @@ bool generate_header(const char *out_path, const char *src_path, CXTranslationUn
             } else {
                 for (auto decl : procs[i]) {
                     char *short_name = decl.name;
-                    if (char *underline = strrchr(decl.name, '_'); underline) {
+                    if (const char *underline = strrchr(decl.name, '_'); underline) {
                         size_t len = size_t(underline)-size_t(decl.name);
                         short_name = (char*)malloc(len+1);
                         memcpy(short_name, decl.name, len);
