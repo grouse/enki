@@ -28,6 +28,7 @@ extern "C" CRTIMP char* strdup(const char *str1 ) NOTHROW;
 extern "C" void* memcpy(void *dst, const void *src, size_t size) NOTHROW;
 extern "C" size_t strlen(const char * str) NOTHROW;
 
+#define MAX(a, b) ((a) > (b) ? (a) : (b))
 #define RMOV(...) static_cast<std::remove_reference_t<decltype(__VA_ARGS__)>&&>(__VA_ARGS__)
 #define RFWD(...) static_cast<decltype(__VA_ARGS__)&&>(__VA_ARGS__)
 
@@ -257,6 +258,49 @@ struct ClangVisitorData {
         unsigned token_count;
     } parent;
 };
+
+template<typename T>
+struct DynamicArray {
+    T *data;
+    int count, capacity;
+
+    T* begin() { return &data[0]; }
+    T* end()   { return &data[count]; }
+
+    T& operator[](int i) { return data[i]; }
+};
+
+template<typename T>
+int array_add(DynamicArray<T> *arr, T e)
+{
+    if (arr->count+1 > arr->capacity) {
+        arr->capacity = MAX(arr->count+1, arr->capacity*2);
+        arr->data = (T*)realloc(arr->data, arr->capacity*sizeof(T));
+    }
+
+    arr->data[arr->count] = e;
+    return arr->count++;
+}
+
+template<typename T>
+int array_find(DynamicArray<T> *arr, T e)
+{
+    for (int i = 0; i < arr->count; i++) {
+        if (arr->data[i] == e) return i;
+    }
+
+    return -1;
+}
+
+template<>
+int array_find(DynamicArray<char*> *arr, char *e)
+{
+    for (int i = 0; i < arr->count; i++) {
+        if (strcmp(arr->data[i], e) == 0) return i;
+    }
+
+    return -1;
+}
 
 
 template<typename T>
