@@ -239,7 +239,7 @@ struct CursorAttributes {
     int in_namespace : 1;
     int test         : 1;
 
-    const char *category;
+    char *category;
 };
 
 struct ClangVisitorData {
@@ -373,13 +373,13 @@ struct FieldDecl {
 };
 
 struct ConstantDecl {
-    const char *name;
+    char *name;
     long long value;
     ConstantDecl *next;
 };
 
 struct StructDecl {
-    const char *name;
+    char *name;
 
     List<FieldDecl> fields;
 
@@ -388,7 +388,8 @@ struct StructDecl {
 };
 
 struct EnumDecl {
-    const char *name;
+    char *name;
+
     CXType type;
     List<ConstantDecl> constants;
 
@@ -397,7 +398,7 @@ struct EnumDecl {
 };
 
 struct ProcDecl {
-    const char *name;
+    char *name;
 
     CXCursor cursor;
     CursorAttributes attributes;
@@ -406,7 +407,7 @@ struct ProcDecl {
 };
 
 struct ComponentArg {
-    const char *name;
+    char *name;
 
     ComponentArg *next;
 
@@ -414,7 +415,7 @@ struct ComponentArg {
 };
 
 struct ComponentDecl {
-    const char *name;
+    char *name;
     List<ComponentArg> args[NUM_COMPONENT_ARGS];
 
     ComponentDecl *next;
@@ -423,7 +424,7 @@ struct ComponentDecl {
 };
 
 struct TagDecl {
-    const char *name;
+    char *name;
     List<ComponentArg> args[NUM_TAG_ARGS];
 
     TagDecl *next;
@@ -432,7 +433,7 @@ struct TagDecl {
 };
 
 struct EnumTagDecl{
-    const char *name;
+    char *name;
     List<ComponentArg> args[NUM_ENUM_ARGS];
 
     EnumTagDecl *next;
@@ -552,7 +553,6 @@ CXChildVisitResult clang_getAttributes(
             data->test = true;
         } else if (clang_str_starts_with(cursor_name, "category:") == 0) {
             const char *category = clang_getCString(cursor_name)+9;
-            DEBUG_LOG("category: %s", category);
             data->category = strdup(category);
         } else {
             DEBUG_LOG("unknown annotation: %s",  clang_getCString(cursor_name));
@@ -1373,16 +1373,70 @@ bool generate_header(const char *out_path, const char *src_path, CXTranslationUn
         }
         fprintf(f, "\n");
 
-        fprintf(f, "TestSuite %s_tests[] = {\n", name);
-        for (auto decl : test_proc_decls) {
-            const char *short_name = strchr(decl->name, '_');
-            short_name = short_name ? short_name+1 : decl->name;
+        DynamicArray<char*> categories{};
+        array_add(&categories, (char*)"");
 
+        DynamicArray<DynamicArray<ProcDecl>> procs{};
+        array_add(&procs, {});
+
+        for (auto decl : test_proc_decls) {
             if (decl->attributes.category) {
-                fprintf(f, "\t{ \"%s\", %s, \"%s\" },\n", short_name, decl->name, decl->attributes.category);
+                int c = array_find(&categories, decl->attributes.category);
+                if (c == -1) c = array_add(&categories, decl->attributes.category);
+
+                if (c >= procs.count) array_add(&procs, {});
+                array_add(&procs[c], ProcDecl(decl));
             } else {
-                fprintf(f, "\t{ \"%s\", %s },\n", short_name, decl->name);
+                array_add(&procs[0], ProcDecl(decl));
             }
+        }
+
+        for (int i = 1; i < categories.count; i++) {
+            char *category = categories[i];
+            fprintf(f, "TestSuite %s_%s_tests[] = {\n", name, category);
+
+            for (auto decl : procs[i]) {
+                char *short_name = decl.name;
+                if (char *underline = strrchr(decl.name, '_'); underline) {
+                    size_t len = size_t(underline)-size_t(decl.name);
+                    short_name = (char*)malloc(len+1);
+                    memcpy(short_name, decl.name, len);
+                    short_name[len] = '\0';
+                }
+
+                fprintf(f, "\t{ \"%s\", %s },\n", short_name, decl.name);
+                if (short_name != decl.name) free(short_name);
+            }
+
+            fprintf(f, "};\n");
+        }
+
+
+        fprintf(f, "TestSuite %s_tests[] = {\n", name);
+        for (int i = 0; i < categories.count; i++) {
+            char *category = categories[i];
+            if (category && *category) {
+                fprintf(
+                    f, "\t{ \"%s\", nullptr, %s_%s_tests, sizeof(%s_%s_tests)/sizeof(%s_%s_tests[0]) },\n",
+                    category,
+                    name, category,
+                    name, category,
+                    name, category);
+            } else {
+                for (auto decl : procs[i]) {
+                    char *short_name = decl.name;
+                    if (char *underline = strrchr(decl.name, '_'); underline) {
+                        size_t len = size_t(underline)-size_t(decl.name);
+                        short_name = (char*)malloc(len+1);
+                        memcpy(short_name, decl.name, len);
+                        short_name[len] = '\0';
+                    }
+
+                    fprintf(f, "\t{ \"%s\", %s },\n", short_name, decl.name);
+                    if (short_name != decl.name) free(short_name);
+                }
+            }
+
         }
         fprintf(f, "};\n");
     }
