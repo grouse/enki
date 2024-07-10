@@ -24,6 +24,7 @@
 extern "C" CRTIMP char* strerror(int errnum) NOTHROW;
 extern "C" int strcmp(const char * str1, const char * str2) NOTHROW;
 extern "C" const char* strchr(const char * str1, int chr) NOTHROW;
+extern "C" const char* strrchr(const char * str1, int chr) NOTHROW;
 extern "C" CRTIMP char* strdup(const char *str1 ) NOTHROW;
 extern "C" void* memcpy(void *dst, const void *src, size_t size) NOTHROW;
 extern "C" size_t strlen(const char * str) NOTHROW;
