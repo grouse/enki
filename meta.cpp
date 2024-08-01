@@ -1483,7 +1483,7 @@ bool generate_header(const char *out_path, const char *src_path, CXTranslationUn
             fprintf(f, "\nvoid flecs_register_%.*s(flecs::world &ecs)\n{\n", src_name_len, src_filename);
             for (auto decl : tag_decls) {
                 fprintf(f, "\tECS_TAG_DEFINE(ecs, %s);\n", decl->name);
-                fprintf(f, "\tecs_add_id(ecs, ecs_id(%s), EcsTag);\n", decl->name);
+                fprintf(f, "\tecs_add_id(ecs, ecs_id(%s), EcsPairIsTag);\n", decl->name);
 
                 for (auto arg : decl->args[0]) {
                     fprintf(f, "\tecs_add_id(ecs, ecs_id(%s), %s);\n", decl->name, arg->name);
