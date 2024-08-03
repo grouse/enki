@@ -225,17 +225,17 @@ class Ninja:
 
         # file util rules
         if self.host_os == "linux":
-            self.rule("copy", "cp $in $out", description = "copy")
-            self.rule("symlink", "ln -s $in $out", description = "symlink")
+            self.rule("copy", "cp $in $out", description = "COPY $out")
+            self.rule("symlink", "ln -s $in $out", description = "SYMLINK $out -> $in")
 
         # generate-header utility
         if self.host_os == "win32":
             self.rule("meta", "$builddir/meta.exe $flags $in -o $out -- $cflags",
-                       description = "generate-header $out",
+                       description = "META $in",
                        restat = True)
         elif self.host_os == "linux":
             self.rule("meta", "$builddir/meta $flags $in -o $out -- $cflags",
-                       description = "generate-header $out",
+                       description = "META $in",
                        restat = True)
 
         meta = self.executable("meta", "$root/tools/enki")
