@@ -2,6 +2,17 @@ import sys
 import os
 import ninja_syntax as ninja
 
+def dict_merge(a: dict, b: dict, path=[]):
+    for key in b:
+        if key in a:
+            if isinstance(a[key], dict) and isinstance(b[key], dict):
+                dict_merge(a[key], b[key], path + [str(key)])
+            else:
+                a[key] = b[key]
+        else:
+            a[key] = b[key]
+    return a
+
 class Object:
     def __init__(self, rule : str, source : str, out : str):
         self.rule   = rule
@@ -26,6 +37,7 @@ class Target:
         self.deps      = []
         self.generated = []
         self.objects   = []
+        self.variables : dict[str, str] = dict()
 
         self.lib_paths    : list[str] = []
         self.public_flags : dict[list[str]] = dict()
@@ -45,8 +57,19 @@ class Target:
 
             self.out = npath_join("$builddir", self.name + self.ext)
 
+        self.gen_dir = npath_join(src_dir, "gen")
+
 
     def generate(self, n : ninja.Writer, parent) -> str:
+        variables = dict_merge(parent.variables, self.variables)
+        variables["gendir"] = self.gen_dir.replace("\\", "/")
+
+        if self.gen_dir:
+            gen_dir = resolve_variables(self.gen_dir, variables)
+            if not os.path.exists(gen_dir): os.makedirs(gen_dir)
+
+            n.variable("gendir", gen_dir)
+
         n.variable("objdir", npath_join(parent.obj_dir, self.name))
         n.newline()
 
@@ -118,14 +141,14 @@ class Target:
 
         for lib in self.libs:
             if lib.endswith(".a"):
-                rlib = resolve_variables(lib, parent.variables)
+                rlib = resolve_variables(lib, variables)
                 if os.path.exists(rlib):
                     objects.append(rlib)
                 else:
                     found = False
                     for path in self.lib_paths:
                         path = npath_join(path, rlib)
-                        path = resolve_variables(path, parent.variables)
+                        path = resolve_variables(path, variables)
 
                         if os.path.exists(path):
                             objects.append(path)
@@ -185,16 +208,12 @@ class Ninja:
 
 
         self.obj_dir = npath_join(self.build_dir, "obj")
-        self.gen_dir = npath_join(self.build_dir, "gen")
-
         if not os.path.exists(self.obj_dir): os.makedirs(self.obj_dir)
-        if not os.path.exists(self.gen_dir): os.makedirs(self.gen_dir)
-
 
         self.variables["root"]     = self.root.replace("\\", "/")
         self.variables["builddir"] = self.build_dir.replace("\\", "/")
         self.variables["objdir"]   = self.obj_dir.replace("\\", "/")
-        self.variables["gendir"]   = self.gen_dir.replace("\\", "/")
+        self.variables["gendir"]   = npath_join(self.build_dir, "gen")
         self.variables["configure_args"] = " ".join(args)
 
         self.flags["c"] = []
@@ -420,7 +439,7 @@ def vars(n : ninja.Writer, name : str, flags : list[str], indent=0):
     n.variable(name, " ".join(shell_escape(flag) for flag in flags), indent)
 
 
-def include_path(t : Target, paths : list[str], public = False):
+def include_path(t : Target, paths : list[str], public = False) -> [str]:
     if type(paths) is not list: return include_path(t, [paths], public)
 
     for path in paths:
@@ -433,7 +452,9 @@ def include_path(t : Target, paths : list[str], public = False):
             if "c" not in t.public_flags: t.public_flags["c"] = []
             t.public_flags["c"].append(flag)
 
-def lib_path(t : Target, paths : list[str], public = False) -> str:
+    return paths
+
+def lib_path(t : Target, paths : list[str], public = False) -> [str]:
     if type(paths) is not list: return lib_path(t, [paths], public)
 
     for path in paths:
@@ -447,7 +468,9 @@ def lib_path(t : Target, paths : list[str], public = False) -> str:
             if "link" not in t.public_flags: t.public_flags["link"] = []
             t.public_flags["link"].append(flag)
 
-def define(t : Target, vars : list[str], public = False):
+    return paths
+
+def define(t : Target, vars : list[str], public = False) -> [str]:
     if type(vars) is not list: return define(t, [vars], public)
 
     for var in vars:
@@ -461,6 +484,8 @@ def define(t : Target, vars : list[str], public = False):
         if public:
             if "c" not in t.public_flags: t.public_flags["c"] = []
             t.public_flags["c"].append(d)
+
+    return vars
 
 def cxx(t : Target, sources : list[str], deps : list[str] = None, flags : list[str] = None) -> list[Object]:
     if type(sources) is not list: return cxx(t, [sources], deps, flags)
@@ -496,8 +521,11 @@ def cc(t : Target, sources : list[str], deps : list[str] = None, flags : list[st
     t.objects.extend(objs)
     return objs
 
-def lib(t : Target, name : str):
-    t.libs.append(name)
+def lib(t : Target, libs : [str]) -> [str]:
+    if type(libs) is not list: return lib(t, [libs])
+
+    t.libs.extend(libs)
+    return libs
 
 def dylib(t : Target, name : str):
     t.dylibs.append(name)
