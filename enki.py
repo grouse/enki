@@ -57,7 +57,7 @@ class Target:
 
             self.out = npath_join("$builddir", self.name + self.ext)
 
-        self.gen_dir = npath_join(src_dir, "gen")
+        self.gen_dir = npath_join(src_dir, "generated")
 
 
     def generate(self, n : ninja.Writer, parent) -> str:
@@ -213,7 +213,7 @@ class Ninja:
         self.variables["root"]     = self.root.replace("\\", "/")
         self.variables["builddir"] = self.build_dir.replace("\\", "/")
         self.variables["objdir"]   = self.obj_dir.replace("\\", "/")
-        self.variables["gendir"]   = npath_join(self.build_dir, "gen")
+        self.variables["gendir"]   = npath_join(self.build_dir, "generated")
         self.variables["configure_args"] = " ".join(args)
 
         self.flags["c"] = []
