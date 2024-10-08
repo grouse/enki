@@ -328,6 +328,16 @@ class Ninja:
                     sflags = " ".join(flags)
                     command = command.replace("$%sflags" % k, sflags)
 
+                if t.rule in t.flags:
+                   command = command.replace("$flags", " ".join(t.flags[t.rule]))
+
+                for k, flags in self.flags.items():
+                    sflags = " ".join(flags)
+                    command = command.replace("$%sflags" % k, sflags)
+
+                if t.rule in self.flags:
+                   command = command.replace("$flags", " ".join(self.flags[t.rule]))
+
                 oflags = " ".join(o.flags)
                 command = command.replace("$flags", oflags)
 
