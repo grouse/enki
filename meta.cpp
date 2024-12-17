@@ -239,8 +239,6 @@ struct CursorAttributes {
     int internal     : 1;
     int in_namespace : 1;
     int test         : 1;
-
-    char *category;
 };
 
 struct ClangVisitorData {
@@ -552,9 +550,6 @@ CXChildVisitResult clang_getAttributes(
         } else if (clang_strcmp(cursor_name, "test") == 0) {
             data->exported = true;
             data->test = true;
-        } else if (clang_str_starts_with(cursor_name, "category:") == 0) {
-            const char *category = clang_getCString(cursor_name)+9;
-            data->category = strdup(category);
         } else {
             DEBUG_LOG("unknown annotation: %s",  clang_getCString(cursor_name));
         }
@@ -650,6 +645,7 @@ bool clang_Cursor_isInFile(CXCursor cursor, const char *src, const char *header)
 
     const char *c_filename_sz = clang_getCString(c_filename_s);
     if (c_filename_sz) {
+
         for (auto *lhs = c_filename_sz, *rhs = src; *lhs && *rhs; lhs++, rhs++) {
             if (*lhs == *rhs) continue;
             if (*lhs == '/' && *rhs == '\\') continue;
@@ -1381,12 +1377,26 @@ bool generate_header(const char *out_path, const char *src_path, CXTranslationUn
         array_add(&procs, {});
 
         for (auto decl : test_proc_decls) {
-            if (decl->attributes.category) {
-                int c = array_find(&categories, decl->attributes.category);
-                if (c == -1) c = array_add(&categories, decl->attributes.category);
+            const char *test_name = decl->name;
+            for (const char *it = strchr(decl->name, '_'); it; it = strchr(it+1, '_')) {
+                if (it[1] == '_' && it[2]) {
+                    test_name = it+2;
+                    it += 1;
+                }
+            }
 
-                if (c >= procs.count) array_add(&procs, {});
-                array_add(&procs[c], ProcDecl(decl));
+            if (test_name != decl->name) {
+                size_t ci = (size_t)test_name - (size_t)decl->name - 2;
+                char c = decl->name[ci];
+                decl->name[ci] = '\0';
+
+                char *category = decl->name;
+                int idx = array_find(&categories, category);
+                if (idx == -1) idx = array_add(&categories, strdup(category));
+                decl->name[ci] = c;
+
+                if (idx >= procs.count) array_add(&procs, {});
+                array_add(&procs[idx], ProcDecl(decl));
             } else {
                 array_add(&procs[0], ProcDecl(decl));
             }
@@ -1397,16 +1407,15 @@ bool generate_header(const char *out_path, const char *src_path, CXTranslationUn
             fprintf(f, "TestSuite %s_%s_tests[] = {\n", name, category);
 
             for (auto decl : procs[i]) {
-                char *short_name = decl.name;
-                if (const char *underline = strrchr(decl.name, '_'); underline) {
-                    size_t len = size_t(underline)-size_t(decl.name);
-                    short_name = (char*)malloc(len+1);
-                    memcpy(short_name, decl.name, len);
-                    short_name[len] = '\0';
+                const char *test_name = decl.name;
+                for (const char *it = strchr(decl.name, '_'); it; it = strchr(it+1, '_')) {
+                    if (it[1] == '_' && it[2]) {
+                        test_name = it+2;
+                        it += 1;
+                    }
                 }
 
-                fprintf(f, "\t{ \"%s\", %s },\n", short_name, decl.name);
-                if (short_name != decl.name) free(short_name);
+                fprintf(f, "\t{ \"%s\", %s },\n", test_name, decl.name);
             }
 
             fprintf(f, "};\n");
@@ -1425,16 +1434,15 @@ bool generate_header(const char *out_path, const char *src_path, CXTranslationUn
                     name, category);
             } else {
                 for (auto decl : procs[i]) {
-                    char *short_name = decl.name;
-                    if (const char *underline = strrchr(decl.name, '_'); underline) {
-                        size_t len = size_t(underline)-size_t(decl.name);
-                        short_name = (char*)malloc(len+1);
-                        memcpy(short_name, decl.name, len);
-                        short_name[len] = '\0';
+                    const char *test_name = decl.name;
+                    for (const char *it = strchr(decl.name, '_'); it; it = strchr(it+1, '_')) {
+                        if (it[1] == '_' && it[2]) {
+                            test_name = it+2;
+                            it += 1;
+                        }
                     }
 
-                    fprintf(f, "\t{ \"%s\", %s },\n", short_name, decl.name);
-                    if (short_name != decl.name) free(short_name);
+                    fprintf(f, "\t{ \"%s\", %s },\n", test_name, decl.name);
                 }
             }
 
