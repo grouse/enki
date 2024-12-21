@@ -19,8 +19,9 @@ class Object:
         self.source = source
         self.out    = out
 
-        self.deps  : list[str] = []
-        self.flags : list[str] = []
+        self.deps      : list[str]     = []
+        self.flags     : list[str]      = []
+        self.variables : dict[str, str] = dict()
 
 class Target:
     def __init__(self, name : str, type : str, src_dir : str, target_os : str):
@@ -167,6 +168,9 @@ class Target:
                 source_name = os.path.splitext(gen.source)[0]
                 n.build(gen.out, gen.rule, src(gen.source, self.src_dir), implicit = gen.deps)
                 vars(n, "flags", gen.flags, indent=1)
+
+                for k,v in gen.variables.items():
+                    n.variable(k, v, 1)
 
                 generated.append(gen.out)
             n.newline()
@@ -568,9 +572,13 @@ def meta(t : Target, sources : list[str], flags : list[str] = None):
     for source in sources:
         source_name = os.path.splitext(source)[0]
         out = npath_join("$gendir", normpath(source_name+".h"))
+        objfile = npath_join("$objdir", normpath(source_name+".o"))
+        depfile = objfile+".d"
 
         o = Object("meta", source, out)
         o.deps.append("$builddir/meta")
+        o.variables["depfile"] = depfile
+
         if flags: o.flags.extend(flags)
 
         t.generated.append(o)
