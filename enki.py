@@ -577,7 +577,7 @@ def meta(t : Target, sources : list[str], flags : list[str] = None):
 
         o = Object("meta", source, out)
         o.deps.append("$builddir/meta")
-        o.variables["depfile"] = depfile
+        #o.variables["depfile"] = depfile
 
         if flags: o.flags.extend(flags)
 
