@@ -60,7 +60,6 @@ class Target:
 
         self.gen_dir = npath_join(src_dir, "generated")
 
-
     def generate(self, n : ninja.Writer, parent) -> str:
         variables = dict_merge(parent.variables, self.variables)
         variables["gendir"] = self.gen_dir.replace("\\", "/")
@@ -70,6 +69,9 @@ class Target:
             if not os.path.exists(gen_dir): os.makedirs(gen_dir)
 
             n.variable("gendir", gen_dir)
+
+        for k,v in self.variables.items():
+            n.variable(k, v)
 
         n.variable("objdir", npath_join(parent.obj_dir, self.name))
         n.newline()
@@ -118,7 +120,6 @@ class Target:
         objects : list[str] = []
         if self.objects:
             for obj in self.objects:
-
                 order_only = []
                 if obj.rule == "cxx" or obj.rule == "cc":
                     order_only.extend(ogen_dep)
@@ -162,8 +163,11 @@ class Target:
             else:
                 flibs.append(f_lib(lib))
 
-        generated : list[str] = []
+        implicit_deps : list[str] = []
+        order_deps : list[str] = []
+
         if self.generated:
+            generated : list[str] = []
             for gen in self.generated:
                 source_name = os.path.splitext(gen.source)[0]
                 n.build(gen.out, gen.rule, src(gen.source, self.src_dir), implicit = gen.deps)
@@ -180,8 +184,10 @@ class Target:
             n.build("gen.%s" % self.name, "phony", "$objdir/%s.stamp" % self.name)
             n.newline()
 
+            order_deps.extend(generated)
+
         n.newline()
-        n.build(self.out, self.rule, objects, order_only = generated)
+        n.build(self.out, self.rule, objects, order_only = order_deps)
         vars(n, "libs", flibs, 1)
 
         if self.ext:
@@ -189,6 +195,24 @@ class Target:
             n.build(npath_join("$builddir", self.name), "phony", self.out)
 
         print("wrote %s." % os.path.basename(n.output.name))
+
+class CMake:
+    def __init__(self, name : str, src_dir : str, target_os : str, opts : list[str] = None):
+        self.name      : str          = name
+        self.src_dir   : str          = src_dir
+        self.opts      : list[str]    = opts
+        self.target_os : str          = target_os
+        self.targets   : list[Target] = []
+
+    def generate():
+        pass
+
+    def lib(self, lib_name : str, target_name : str = None) -> Target:
+        if not target_name: target_name = lib_name
+        t = Target(target_name, "lib", self.src_dir, self.target_os)
+        t.out = npath_join("$builddir", self.name, lib_name + t.ext)
+        self.targets.append(t)
+        return t
 
 class Ninja:
     def __init__(self, name : str, root : str, args : str, target_os : str):
@@ -198,12 +222,13 @@ class Ninja:
         self.host_os = sys.platform
         self.target_os = target_os
 
-        self.variables : dict[str, str] = dict()
-        self.flags     : dict[str, list[str]] = dict()
-        self.targets   : list[Target] = []
+        self.variables    : dict[str, str] = dict()
+        self.flags        : dict[str, list[str]] = dict()
+        self.targets      : list[Target] = []
+        self.cmakes       : list[CMake] = []
         self.test_targets : list[Target] = []
-        self.rules     : dict[str, str] = dict()
-        self.default   : Target = None
+        self.rules        : dict[str, str] = dict()
+        self.default      : Target = None
 
         if not os.path.exists(self.build_dir): os.makedirs(self.build_dir)
 
@@ -225,7 +250,6 @@ class Ninja:
         for k, v in self.variables.items(): self.writer.variable(k, v)
         self.writer.newline()
 
-
         # re-generate ninja rule and target
         enki_dir = os.path.dirname(os.path.realpath(__file__))
         self.rule("configure",
@@ -245,6 +269,14 @@ class Ninja:
         self.rule("run", "$in $flags",
                   description = "RUN $in",
                   pool = "console")
+
+        # external project rules
+        self.rule("ninja", "ninja -C $dir $target",
+                  pool = "console",
+                  restat = True)
+        self.rule("cmake", "cmake -GNinja $opts -S $in -B $dst",
+                  pool = "console",
+                  restat = True)
 
         # file util rules
         if self.host_os == "linux":
@@ -298,6 +330,13 @@ class Ninja:
 
         if flags:
             for k, v in flags.items(): t.flags[k] = v
+        return t
+
+    def cmake(self, name : str, src_dir : str = "", opts : list[str] = None) -> CMake:
+        #src_dir = resolve_variables(src_dir, self.variables)
+        t = CMake(name, src_dir, self.target_os, opts)
+        self.cmakes.append(t)
+
         return t
 
     def test(self, parent : Target, src_dir : str, include_header : str = None) -> Target:
@@ -364,6 +403,17 @@ class Ninja:
 
         for k, v in self.flags.items(): vars(self.writer, k+"flags", v)
         self.writer.newline()
+
+        for c in self.cmakes:
+            self.writer.build(npath_join("$builddir", c.name, "build.ninja"), "cmake", c.src_dir)
+            self.writer.variable("dst", npath_join("$builddir", c.name), 1)
+            self.writer.variable("opts", c.opts, 1)
+
+            deps = npath_join("$builddir", c.name, "build.ninja")
+            for t in c.targets:
+                self.writer.build(t.out, "ninja", implicit = deps)
+                self.writer.variable("target", t.name, 1)
+                self.writer.variable("dir", npath_join("$builddir", c.name), 1)
 
         gen_targets : list[str] = []
         for t in self.targets:
