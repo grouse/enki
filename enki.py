@@ -207,8 +207,8 @@ class CMake:
     def generate():
         pass
 
-    def lib(self, lib_name : str, target_name : str = None) -> Target:
-        if not target_name: target_name = lib_name
+    def lib(self, target_name : str, lib_name: str = None) -> Target:
+        if not lib_name: lib_name = "lib"+target_name
         t = Target(target_name, "lib", self.src_dir, self.target_os)
         t.out = npath_join("$builddir", self.name, lib_name + t.ext)
         self.targets.append(t)
