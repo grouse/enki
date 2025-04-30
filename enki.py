@@ -208,7 +208,12 @@ class CMake:
         pass
 
     def lib(self, target_name : str, lib_name: str = None) -> Target:
-        if not lib_name: lib_name = "lib"+target_name
+        if not lib_name:
+            if self.target_os == "linux":
+                lib_name = "lib"+target_name
+            else:
+                lib_name = target_name
+
         t = Target(target_name, "lib", self.src_dir, self.target_os)
         t.out = npath_join("$builddir", self.name, lib_name + t.ext)
         self.targets.append(t)
