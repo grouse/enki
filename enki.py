@@ -230,6 +230,8 @@ class CMake:
                 json.dump({}, f)
 
         args = ["cmake", "-B", str(self.build_dir), "-S", str(self.src_dir), "-GNinja"]
+        args.extend(["-DCMAKE_CXX_COMPILER=clang++", "-DCMAKE_C_COMPILER=clang"])
+
         if self.opts: args.extend(self.opts)
         subprocess.run(args)
 
