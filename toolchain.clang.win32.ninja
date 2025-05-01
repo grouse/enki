@@ -1,0 +1,22 @@
+rule cc
+    command = clang -D_DLL -MMD -MF $out.d $cflags $ccflags $flags -c $in -o $out
+    depfile = $out.d
+    description = CC $in
+
+rule cxx
+    command = clang++ -D_DLL -MMD -MF $out.d $cflags $cxxflags -c $in -o $out
+    depfile = $out.d
+    description = CC $in
+
+rule link
+    command = clang++ -Wl,-nodefaultlib:libcmt -D_DLL -lmsvcrt $linkflags -o $out $in $libs
+    depfile = $out.d
+    description = CC $in
+
+rule ar
+    command = lld-link.exe /lib "/OUT:$out" /nologo $arflags $in
+    description = LIB $out
+
+rule touch
+    command = cmd /c type nul > "$out"
+    description = TOUCH $out

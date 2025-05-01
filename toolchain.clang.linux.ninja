@@ -1,0 +1,21 @@
+rule cc
+  command = clang -MMD -MF $out.d $cflags $ccflags $flags -c $in -o $out
+  description = CC $in
+  depfile = $out.d
+
+rule cxx
+  command = clang++ -MMD -MF $out.d $cflags $cxxflags $flags -c $in -o $out
+  description = CXX $in
+  depfile = $out.d
+
+rule link
+  command = clang++ -o$out $in $linkflags $libs
+  description = LINK $out
+
+rule ar
+  command = ar -rcs $arflags $out $in
+  description = LIB $out
+
+rule touch
+  command = touch $out
+  description = TOUCH $out

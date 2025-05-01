@@ -18,6 +18,18 @@ def dict_merge(a: dict, b: dict, path=[]):
             a[key] = b[key]
     return a
 
+class Rule:
+    def __init__(self, command, description=None, depfile=None, generator=False, pool=None, restat=False, rspfile=None, rspfile_content=None, deps=None):
+        self.command         = command
+        self.description     = description
+        self.depfile         = depfile
+        self.generator       = generator
+        self.pool            = pool
+        self.restat          = restat
+        self.rspfile         = rspfile
+        self.rspfile_content = rspfile_content
+        self.deps            = deps
+
 class Object:
     def __init__(self, rule : str, source : str, out : str):
         self.rule   = rule
@@ -35,8 +47,8 @@ class Target:
         self.type      = type
         self.target_os = target_os
 
-        self.flags : dict[list[str]] = dict()
-        self.flags["c"] = []
+        self._flags : dict[list[str]] = dict()
+        self._flags["c"] = []
 
         self.libs      = []
         self.dylibs    = []
@@ -81,14 +93,14 @@ class Target:
         n.variable("objdir", npath_join(parent.obj_dir, self.name))
         n.newline()
 
-        if self.dylibs: self.flags["link"].append("-Wl,-rpath,'$$ORIGIN'")
+        if self.dylibs: self._flags["link"].append("-Wl,-rpath,'$$ORIGIN'")
 
         t_flags = dict()
-        for k, v in self.flags.items():
+        for k, v in self._flags.items():
             if not v: continue
 
             t_flags[k] = []
-            if k in parent.flags: t_flags[k].extend(parent.flags[k])
+            if k in parent._flags: t_flags[k].extend(parent._flags[k])
             t_flags[k].extend(v)
 
         for k, v in t_flags.items(): vars(n, k+"flags", v)
@@ -171,7 +183,7 @@ class Target:
             else:
                 flibs.append(f_lib(lib))
 
-        implicit_deps : list[str] = []
+        implicit_deps : list[str] = [ npath_join("$builddir", "compile_commands.json") ]
         order_deps : list[str] = []
 
         if self.generated:
@@ -195,7 +207,7 @@ class Target:
             order_deps.extend(generated)
 
         n.newline()
-        n.build(self.out, self.rule, objects, order_only = order_deps)
+        n.build(self.out, self.rule, objects, implicit = implicit_deps, order_only = order_deps)
         vars(n, "libs", flibs, 1)
 
         if self.ext:
@@ -367,22 +379,19 @@ class Ninja:
         self.root      = root
         self.build_dir = npath_join(root, name).replace("\\", "/")
 
-        self.host_os = sys.platform
+        self.host_os   = sys.platform
         self.target_os = target_os
+        self.compiler  = "clang"
 
         self.variables    : dict[str, str] = dict()
-        self.flags        : dict[str, list[str]] = dict()
+        self._flags       : dict[str, list[str]] = dict()
         self.targets      : list[Target] = []
         self.cmakes       : list[CMake] = []
         self.test_targets : list[Target] = []
-        self.rules        : dict[str, str] = dict()
+        self.rules        : dict[str, Rule] = dict()
         self.default      : Target = None
 
         if not os.path.exists(self.build_dir): os.makedirs(self.build_dir)
-
-        path = os.path.join(self.build_dir, "build.ninja")
-        self.writer    = ninja.Writer(open(path, "w"))
-
 
         self.obj_dir = npath_join(self.build_dir, "obj")
         if not os.path.exists(self.obj_dir): os.makedirs(self.obj_dir)
@@ -393,78 +402,24 @@ class Ninja:
         self.variables["gendir"]   = npath_join(self.build_dir, "generated")
         self.variables["configure_args"] = " ".join(args)
 
-        self.flags["c"] = []
+        self._flags["c"] = []
 
-        for k, v in self.variables.items(): self.writer.variable(k, v)
-        self.writer.newline()
 
-        # re-generate ninja rule and target
-        enki_dir = os.path.dirname(os.path.realpath(__file__))
-        self.rule("configure",
-             command="%s $root/configure.py $configure_args" % sys.executable,
-             description = "regenerate ninja",
-             generator=True)
-
-        self.writer.build("build.ninja", "configure",
-                 implicit = [
-                     "$root/configure.py",
-                     os.path.join(enki_dir, "ninja_syntax.py"),
-                     os.path.join(enki_dir, "enki.py"),
-                 ])
-        self.writer.newline()
-
-        # generic run utility
-        self.rule("run", "$in $flags",
-                  description = "RUN $in",
-                  pool = "console")
-
-        # external project rules
-        self.rule("ninja", "ninja -C $dir $target",
-                  pool = "console",
-                  restat = True)
-        self.rule("cmake", "cmake -GNinja $opts -S $in -B $dst",
-                  pool = "console",
-                  restat = True)
-
-        # file util rules
-        if self.host_os == "linux":
-            self.rule("copy", "cp $in $out", description = "COPY $out")
-            self.rule("symlink", "ln -s $in $out", description = "SYMLINK $out -> $in")
-
-        # generate-header utility
-        if self.host_os == "win32":
-            self.rule("meta", "$builddir/meta.exe $flags $in -o $out -- $cflags",
-                       description = "META $in",
-                       restat = True)
-        elif self.host_os == "linux":
-            self.rule("meta", "$builddir/meta $flags $in -o $out -- $cflags",
-                       description = "META $in",
-                       restat = True)
-
-        meta = self.executable("meta", "$root/tools/enki")
-        if self.host_os == "win32": define(meta, "_CRT_SECURE_NO_WARNINGS");
-        lib_path(meta, "$builddir")
-        include_path(meta, "$root/external/LLVM/include")
-        cxx(meta, "meta.cpp")
-
-        if self.target_os == "win32":
-            lib_path(meta, "$root/external/LLVM/lib/win64")
-            lib(meta, "libclang")
-        elif self.target_os == "linux":
-            copy(meta, "$root/external/LLVM/lib/linux/libclang.so.17.0.2", "$builddir/libclang.so.17.0.2")
-            symlink(meta, "$builddir/libclang.so.17.0.2", "$builddir/libclang.so.17")
-            symlink(meta, "$builddir/libclang.so.17.0.2", "$builddir/libclang.so")
-            dylib(meta, "clang")
 
     def rule(self, name : str, command : str, **kwargs):
-        if name not in self.flags: self.flags[name] = []
-        self.rules[name] = command
+        if name not in self._flags: self._flags[name] = []
+        self.rules[name] = Rule(command, **kwargs)
 
-        self.writer.rule(name, command, **kwargs)
+    def flags(self, rule : str, opts : list[str]):
+        if not opts: return self._flags
+        if type(opts) is not list: return self.flags(rule, [opts])
+        if not rule in self._flags: self._flags[rule] = []
+        self._flags[rule].extend(opts)
+        return self._flags
 
     def executable(self, name : str, src_dir : str = "") -> Target:
         t = Target(name, "exe", src_dir, self.target_os)
-        for r, c in self.rules.items(): t.flags[r] = []
+        for rule, info in self.rules.items(): t._flags[rule] = []
 
         self.targets.append(t)
         return t
@@ -477,7 +432,7 @@ class Ninja:
         self.targets.append(t)
 
         if flags:
-            for k, v in flags.items(): t.flags[k] = v
+            for k, v in flags.items(): t._flags[k] = v
         return t
 
     def cmake(self, name : str, src_dir : str = "", opts : list[str] = None) -> CMake:
@@ -488,16 +443,16 @@ class Ninja:
 
     def test(self, parent : Target, src_dir : str, include_header : str = None) -> Target:
         t = Target("test.%s" % parent.name, "exe", src_dir, self.target_os)
-        for r, c in self.rules.items(): t.flags[r] = []
+        for rule, info in self.rules.items(): t._flags[rule] = []
         dep(t, parent)
 
         if include_header:
-            t.flags["c"].append("-include " + include_header)
+            t._flags["c"].append("-include " + include_header)
 
         self.test_targets.append(t)
         return t
 
-    def generate(self):
+    def generate_compile_commands(self):
         json = open(os.path.join(self.build_dir, "compile_commands.json"), "w")
         json.write("[\n")
 
@@ -546,32 +501,121 @@ class Ninja:
                 json.write('\t},\n');
         json.write("]\n")
 
-        self.writer.newline()
 
-        for k, v in self.flags.items(): vars(self.writer, k+"flags", v)
-        self.writer.newline()
+    def generate(self):
+        path   = os.path.join(self.build_dir, "build.ninja")
+        writer = ninja.Writer(open(path, "w"))
 
+        # root variables
+        for k, v in self.variables.items(): writer.variable(k, v)
+
+        # re-generate ninja rule and target
+        writer.newline()
+        enki_dir = os.path.dirname(os.path.realpath(__file__))
+        writer.rule("configure",
+             command="%s $root/configure.py $configure_args" % sys.executable,
+             description = "regenerate ninja",
+             generator=True)
+
+        writer.build("build.ninja", "configure",
+                 implicit = [
+                     "$root/configure.py",
+                     os.path.join(enki_dir, "ninja_syntax.py"),
+                     os.path.join(enki_dir, "enki.py"),
+                 ])
+
+        # root flags
+        if self._flags: writer.newline()
+        for k, v in self._flags.items(): vars(writer, k+"flags", v)
+
+        # toolchain
+        writer.newline()
+        toolchain = "toolchain.{}.{}.ninja".format(self.compiler, self.host_os);
+        writer.include(os.path.join(enki_dir, toolchain))
+
+        # user rules
+        if self.rules: writer.newline()
+        for rule, info in self.rules.items():
+            writer.rule(rule, info.command, info.description, info.depfile, info.generator, info.pool, info.restat, info.rspfile, info.rspfile_content, info.deps)
+
+        # generic run utility
+        writer.newline()
+        writer.rule("run", "$in $flags",
+                  description = "RUN $in",
+                  pool = "console")
+
+        # external project rules
+        writer.rule("ninja", "ninja -C $dir $target",
+                  pool = "console",
+                  restat = True)
+        writer.rule("cmake", "cmake -GNinja $opts -S $in -B $dst",
+                  pool = "console",
+                  restat = True)
+
+        # file util rules
+        if self.host_os == "linux":
+            writer.rule("copy", "cp $in $out", description = "COPY $out")
+            writer.rule("symlink", "ln -s $in $out", description = "SYMLINK $out -> $in")
+
+        # generate-header utility
+        if self.host_os == "win32":
+            writer.rule("meta", "$builddir/meta.exe $flags $in -o $out -- $cflags",
+                       description = "META $in",
+                       restat = True)
+        elif self.host_os == "linux":
+            writer.rule("meta", "$builddir/meta $flags $in -o $out -- $cflags",
+                       description = "META $in",
+                       restat = True)
+
+        # built-in meta target
+        meta = self.executable("meta", "$root/tools/enki")
+        if self.host_os == "win32": define(meta, "_CRT_SECURE_NO_WARNINGS");
+        lib_path(meta, "$builddir")
+        include_path(meta, "$root/external/LLVM/include")
+        cxx(meta, "meta.cpp")
+
+        if self.target_os == "win32":
+            lib_path(meta, "$root/external/LLVM/lib/win64")
+            lib(meta, "libclang")
+        elif self.target_os == "linux":
+            copy(meta, "$root/external/LLVM/lib/linux/libclang.so.17.0.2", "$builddir/libclang.so.17.0.2")
+            symlink(meta, "$builddir/libclang.so.17.0.2", "$builddir/libclang.so.17")
+            symlink(meta, "$builddir/libclang.so.17.0.2", "$builddir/libclang.so")
+            dylib(meta, "clang")
+
+        # cmake submodules
+        writer.newline()
         for cmake in self.cmakes:
             deps = npath_join("$builddir", cmake.name, "build.ninja")
             for t in cmake.targets:
-                self.writer.build(t.out, "ninja", implicit = deps)
-                self.writer.variable("target", t.name, 1)
-                self.writer.variable("dir", npath_join("$builddir", cmake.name), 1)
+                writer.build(t.out, "ninja", implicit = deps)
+                writer.variable("target", t.name, 1)
+                writer.variable("dir", npath_join("$builddir", cmake.name), 1)
 
+        # compile commands database
+        writer.newline()
+        writer.build(npath_join("$builddir", "compile_commands.json"), "ninja")
+        writer.variable("dir", "$builddir", 1)
+        writer.variable("target", "-t compdb > compile_commands.json", 1)
+
+        # targets
+        writer.newline()
         gen_targets : list[str] = []
         for t in self.targets:
             filename = t.name + ".ninja"
             path = os.path.join(self.build_dir, filename)
 
             t.generate(ninja.Writer(open(path, "w")), self)
-            self.writer.subninja(npath_join("$builddir", filename))
+            writer.subninja(npath_join("$builddir", filename))
 
             if t.generated: gen_targets.append("gen.%s" % t.name)
 
+        # tests
+        writer.newline()
         for t in self.test_targets:
             filename = t.name + ".ninja"
             path = os.path.join(self.build_dir, filename)
-            self.writer.subninja(npath_join("$builddir", filename))
+            writer.subninja(npath_join("$builddir", filename))
 
             w = ninja.Writer(open(path, "w"))
             t.generate(w, self)
@@ -579,23 +623,23 @@ class Ninja:
             w.newline()
             w.build("$builddir/%s.stamp" % t.name, "run", "$builddir/{}{}".format(t.name, t.ext))
 
-        if self.targets: self.writer.newline()
-        for t in self.targets: self.writer.build(t.name, "phony", t.out)
+        if self.targets: writer.newline()
+        for t in self.targets: writer.build(t.name, "phony", t.out)
 
         test_targets : list[str] = []
         for t in self.test_targets:
-            self.writer.build(t.name, "phony", npath_join("$builddir", "%s.stamp" % t.name))
+            writer.build(t.name, "phony", npath_join("$builddir", "%s.stamp" % t.name))
             test_targets.append(t.name)
 
-        if gen_targets or test_targets: self.writer.newline()
-        if gen_targets: self.writer.build("gen.all", "phony", gen_targets)
-        if test_targets: self.writer.build("test.all", "phony", test_targets)
+        if gen_targets or test_targets: writer.newline()
+        if gen_targets: writer.build("gen.all", "phony", gen_targets)
+        if test_targets: writer.build("test.all", "phony", test_targets)
 
 
         if self.default:
-            self.writer.newline()
-            self.writer.default(self.default.name)
-        print("wrote %s." % os.path.basename(self.writer.output.name))
+            writer.newline()
+            writer.default(self.default.name)
+        print("wrote %s." % os.path.basename(writer.output.name))
 
 
 def npath_join(*args) -> str: return "/".join(args)
@@ -652,8 +696,8 @@ def include_path(t : Target, paths : list[str], public = False) -> [str]:
     for path in paths:
         flag = f_inc(src(path, t.src_dir))
 
-        if "c" not in t.flags: t.flags["c"] = []
-        t.flags["c"].append(flag)
+        if "c" not in t._flags: t._flags["c"] = []
+        t._flags["c"].append(flag)
 
         if public:
             if "c" not in t.public_flags: t.public_flags["c"] = []
@@ -668,8 +712,8 @@ def lib_path(t : Target, paths : list[str], public = False) -> [str]:
         t.lib_paths.append(path)
         flag = f_lib_path(path)
 
-        if "link" not in t.flags: t.flags["link"] = []
-        t.flags["link"].append(flag)
+        if "link" not in t._flags: t._flags["link"] = []
+        t._flags["link"].append(flag)
 
         if public:
             if "link" not in t.public_flags: t.public_flags["link"] = []
@@ -685,8 +729,8 @@ def define(t : Target, vars : list[str], public = False) -> [str]:
         if sys.platform == "win32" and "\"" in d:
             d = '"%s"' % d.replace('"', '\\"')
 
-        if "c" not in t.flags: t.flags["c"] = []
-        t.flags["c"].append(d)
+        if "c" not in t._flags: t._flags["c"] = []
+        t._flags["c"].append(d)
 
         if public:
             if "c" not in t.public_flags: t.public_flags["c"] = []
@@ -752,8 +796,8 @@ def dep(t : Target, deps : list[Target]):
         t.deps.append(d)
 
         for k, v in d.public_flags.items():
-            if k not in t.flags: t.flags[k] = []
-            t.flags[k].extend(v)
+            if k not in t._flags: t._flags[k] = []
+            t._flags[k].extend(v)
 
         for lib in d.libs:
             if lib not in t.libs: t.libs.append(lib)
