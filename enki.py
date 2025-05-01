@@ -255,7 +255,7 @@ class CMake:
                 targets_info = self.process_target(target_data)
                 self.targets_info[name] = targets_info
 
-        #self.print_all_targets_summary()
+        if parent.verbose: self.print_all_targets_summary()
 
     def find_codemodel_file(self) -> Optional[str]:
         if not os.path.exists(self.reply_dir):
@@ -360,6 +360,8 @@ class CMake:
 
 class Ninja:
     def __init__(self, name : str, root : str, args : str, target_os : str):
+        self.verbose = False
+
         self.root      = root
         self.build_dir = npath_join(root, name).replace("\\", "/")
 
