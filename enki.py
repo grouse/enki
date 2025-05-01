@@ -1,5 +1,10 @@
 import sys
 import os
+import json
+import subprocess
+from pathlib import Path
+from typing import Dict, List, Optional, Any
+
 import ninja_syntax as ninja
 
 def dict_merge(a: dict, b: dict, path=[]):
@@ -135,6 +140,9 @@ class Target:
                     o_flags.extend(obj.flags)
                 vars(n, "flags", o_flags, indent=1)
 
+                for k,v in obj.variables:
+                    n.variable(k, v)
+
                 objects.append(obj.out)
 
             for d in self.deps:
@@ -149,8 +157,8 @@ class Target:
                 else:
                     found = False
                     for path in self.lib_paths:
-                        path = npath_join(path, rlib)
                         path = resolve_variables(path, variables)
+                        path = npath_join(path, rlib)
 
                         if os.path.exists(path):
                             objects.append(path)
@@ -204,20 +212,151 @@ class CMake:
         self.target_os : str          = target_os
         self.targets   : list[Target] = []
 
-    def generate():
-        pass
+    def generate(self, parent):
+        self.build_dir = npath_join(parent.build_dir, self.name)
+        self.src_dir = resolve_variables(self.src_dir, parent.variables)
 
-    def lib(self, target_name : str, lib_name: str = None) -> Target:
-        if not lib_name:
-            if self.target_os == "linux":
-                lib_name = "lib"+target_name
-            else:
-                lib_name = target_name
+        self.api_dir = npath_join(self.build_dir, ".cmake", "api", "v1")
+        self.query_dir = npath_join(self.api_dir, "query")
+        self.reply_dir = npath_join(self.api_dir, "reply")
+        self.codemodel_query_dir = npath_join(self.query_dir, "codemodel-v2")
 
-        t = Target(target_name, "lib", self.src_dir, self.target_os)
-        t.out = npath_join("$builddir", self.name, lib_name + t.ext)
-        self.targets.append(t)
-        return t
+        print("Generating CMake submodule: {}".format(self.src_dir))
+        os.makedirs(self.codemodel_query_dir, exist_ok=True)
+
+        query_file = npath_join(self.codemodel_query_dir, "query.json")
+        if not os.path.exists(query_file):
+            with open(query_file, 'w') as f:
+                json.dump({}, f)
+
+        args = ["cmake", "-B", str(self.build_dir), "-S", str(self.src_dir), "-GNinja"]
+        if self.opts: args.extend(self.opts)
+        subprocess.run(args)
+
+        codemodel_file = self.find_codemodel_file()
+        if not codemodel_file:
+            print("Codemodel file not found")
+            return {}
+
+        with open(codemodel_file, 'r') as f:
+            codemodel = json.load(f)
+
+        self.targets_info = {}
+        for config in codemodel.get("configurations", []):
+            targets = config.get("targets", [])
+
+            for target_ref in targets:
+                target_file_path = npath_join(self.reply_dir, target_ref["jsonFile"])
+
+                with open(target_file_path, 'r') as f:
+                    target_data = json.load(f)
+
+                name = target_data["name"]
+                targets_info = self.process_target(target_data)
+                self.targets_info[name] = targets_info
+
+        #self.print_all_targets_summary()
+
+    def find_codemodel_file(self) -> Optional[str]:
+        if not os.path.exists(self.reply_dir):
+            return None
+
+        for filename in os.listdir(self.reply_dir):
+            if filename.startswith("codemodel-v2"):
+                return npath_join(self.reply_dir, filename)
+        return None
+
+    def process_target(self, target_data: Dict[str, Any]) -> Dict[str, Any]:
+        result = {
+            "name": target_data["name"],
+            "type": target_data.get("type", ""),
+            "is_library": "LIBRARY" in target_data.get("type", ""),
+            "artifacts": [],
+            "include_directories": [],
+            "link_libraries": [],
+            "compile_definitions": [],
+            "compile_options": [],
+        }
+
+        for artifact in target_data.get("artifacts", []):
+            result["artifacts"].append({
+                "path": artifact.get("path", ""),
+                "output_name": os.path.basename(artifact.get("path", "")),
+            })
+
+        for compile_group in target_data.get("compileGroups", []):
+            for include in compile_group.get("includes", []):
+                include_path = include.get("path", "")
+                if include_path and include_path not in result["include_directories"]:
+                    result["include_directories"].append(include_path)
+
+            for define in compile_group.get("defines", []):
+                define_name = define.get("define", "")
+                if define_name and define_name not in result["compile_definitions"]:
+                    result["compile_definitions"].append(define_name)
+
+            for option in compile_group.get("compileCommandFragments", []):
+                fragment = option.get("fragment", "")
+                if fragment and fragment not in result["compile_options"]:
+                    result["compile_options"].append(fragment)
+
+        for link_lib in target_data.get("link", {}).get("libraries", []):
+            lib_name = link_lib.get("name", "")
+            if lib_name:
+                result["link_libraries"].append(lib_name)
+
+        return result
+
+    def print_all_targets_summary(self):
+        print("\nAll Targets Summary:")
+        print("=" * 80)
+
+        target_types = set()
+        for info in self.targets_info.values():
+            target_types.add(info["type"])
+
+        for target_type in sorted(target_types):
+            print(f"\nType: {target_type}")
+            print("-" * 40)
+
+            for name, info in self.targets_info.items():
+                if info["type"] != target_type: continue
+
+                if info["is_library"]:
+                    print(f"Target: {name}")
+
+                    # Print artifacts (output files)
+                    print("  Output Files:")
+                    for artifact in info["artifacts"]:
+                        print(f"    - {artifact['output_name']} (Path: {artifact['path']})")
+
+                    # Print include directories
+                    print("  Include Directories:")
+                    for include_dir in info["include_directories"]:
+                        print(f"    - {include_dir}")
+
+                    # Print link libraries
+                    print("  Link Libraries:")
+                    for lib in info["link_libraries"]:
+                        print(f"    - {lib}")
+
+                    print("-" * 80)
+                else:
+                    artifacts_str = ", ".join([a["output_name"] for a in info["artifacts"]])
+                    print(f"  {name}: {artifacts_str}")
+
+
+
+    def lib(self, target_name : str) -> Target:
+        for name, info in self.targets_info.items():
+            if name == target_name and info["type"] == "STATIC_LIBRARY":
+                #print("found lib in CMake submodule: {}, artifacts: {}".format(name, info["artifacts"]))
+                target = Target(target_name, "lib", self.src_dir, self.target_os)
+                target.out = npath_join("$builddir", self.name, info["artifacts"][0]["path"])
+                self.targets.append(target)
+                return target
+
+        return None
 
 class Ninja:
     def __init__(self, name : str, root : str, args : str, target_os : str):
@@ -338,10 +477,9 @@ class Ninja:
         return t
 
     def cmake(self, name : str, src_dir : str = "", opts : list[str] = None) -> CMake:
-        #src_dir = resolve_variables(src_dir, self.variables)
         t = CMake(name, src_dir, self.target_os, opts)
+        t.generate(self)
         self.cmakes.append(t)
-
         return t
 
     def test(self, parent : Target, src_dir : str, include_header : str = None) -> Target:
@@ -409,16 +547,12 @@ class Ninja:
         for k, v in self.flags.items(): vars(self.writer, k+"flags", v)
         self.writer.newline()
 
-        for c in self.cmakes:
-            self.writer.build(npath_join("$builddir", c.name, "build.ninja"), "cmake", c.src_dir)
-            self.writer.variable("dst", npath_join("$builddir", c.name), 1)
-            self.writer.variable("opts", c.opts, 1)
-
-            deps = npath_join("$builddir", c.name, "build.ninja")
-            for t in c.targets:
+        for cmake in self.cmakes:
+            deps = npath_join("$builddir", cmake.name, "build.ninja")
+            for t in cmake.targets:
                 self.writer.build(t.out, "ninja", implicit = deps)
                 self.writer.variable("target", t.name, 1)
-                self.writer.variable("dir", npath_join("$builddir", c.name), 1)
+                self.writer.variable("dir", npath_join("$builddir", cmake.name), 1)
 
         gen_targets : list[str] = []
         for t in self.targets:
