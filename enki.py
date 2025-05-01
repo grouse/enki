@@ -503,8 +503,8 @@ class Ninja:
 
 
     def generate(self):
-        path   = os.path.join(self.build_dir, "build.ninja")
-        writer = ninja.Writer(open(path, "w"))
+        root_dir = os.path.realpath(self.root)
+        writer = ninja.Writer(open(os.path.join(self.build_dir, "build.ninja"), "w"))
 
         # root variables
         for k, v in self.variables.items(): writer.variable(k, v)
@@ -512,6 +512,8 @@ class Ninja:
         # re-generate ninja rule and target
         writer.newline()
         enki_dir = os.path.dirname(os.path.realpath(__file__))
+        enki_dir = enki_dir.replace(root_dir, "$root")
+
         writer.rule("configure",
              command="%s $root/configure.py $configure_args" % sys.executable,
              description = "regenerate ninja",
@@ -531,7 +533,7 @@ class Ninja:
         # toolchain
         writer.newline()
         toolchain = "toolchain.{}.{}.ninja".format(self.compiler, self.host_os);
-        writer.include(os.path.join(enki_dir, toolchain))
+        writer.include(npath_join(enki_dir, toolchain))
 
         # user rules
         if self.rules: writer.newline()
