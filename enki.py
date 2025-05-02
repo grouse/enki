@@ -75,22 +75,17 @@ class Target:
 
             self.out = npath_join("$builddir", self.name + self.ext)
 
-        self.gen_dir = npath_join(src_dir, "generated")
+        self.variables["gendir"] = npath_join(src_dir, "generated")
 
     def generate(self, n : ninja.Writer, parent) -> str:
         variables = dict_merge(parent.variables, self.variables)
-        variables["gendir"] = self.gen_dir.replace("\\", "/")
-
-        if self.gen_dir:
-            gen_dir = resolve_variables(self.gen_dir, variables)
-            if not os.path.exists(gen_dir): os.makedirs(gen_dir)
-
-            n.variable("gendir", gen_dir)
+        gen_dir = resolve_variables(self.variables["gendir"], variables)
+        if not os.path.exists(gen_dir): os.makedirs(gen_dir)
 
         for k,v in self.variables.items():
             n.variable(k, v)
 
-        n.variable("objdir", npath_join(parent.obj_dir, self.name))
+        n.variable("objdir", npath_join(parent.variables["objdir"], self.name))
         n.newline()
 
         if self.dylibs: self._flags["link"].append("-Wl,-rpath,'$$ORIGIN'")
@@ -371,9 +366,7 @@ class CMake:
 class Ninja:
     def __init__(self, name : str, root : str, args : str, target_os : str):
         self.verbose = False
-
         self.root      = root
-        self.build_dir = npath_join(root, name).replace("\\", "/")
 
         self.host_os   = sys.platform
         self.target_os = target_os
@@ -387,15 +380,16 @@ class Ninja:
         self.rules        : dict[str, Rule] = dict()
         self.default      : Target = None
 
+        self.build_dir = npath_join(root, name).replace("\\", "/")
         if not os.path.exists(self.build_dir): os.makedirs(self.build_dir)
 
-        self.obj_dir = npath_join(self.build_dir, "obj")
-        if not os.path.exists(self.obj_dir): os.makedirs(self.obj_dir)
+        obj_dir = npath_join(self.build_dir, "obj")
+        if not os.path.exists(obj_dir): os.makedirs(obj_dir)
 
         self.variables["root"]     = self.root.replace("\\", "/")
-        self.variables["builddir"] = self.build_dir.replace("\\", "/")
-        self.variables["objdir"]   = self.obj_dir.replace("\\", "/")
-        self.variables["gendir"]   = npath_join(self.build_dir, "generated")
+        self.variables["builddir"] = npath_join("$root", name)
+        self.variables["objdir"]   = npath_join("$builddir", "obj")
+        self.variables["gendir"]   = npath_join("$builddir", "generated")
         self.variables["configure_args"] = " ".join(args)
 
         self._flags["c"] = []
