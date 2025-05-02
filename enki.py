@@ -204,16 +204,16 @@ class Target:
         print("wrote %s." % os.path.basename(n.output.name))
 
 class CMake:
-    def __init__(self, name : str, src_dir : str, target_os : str, opts : list[str] = None):
+    def __init__(self, name : str, parent, src_dir : str, target_os : str, opts : list[str] = None):
         self.name      : str          = name
+        self.parent                   = parent
         self.src_dir   : str          = src_dir
         self.opts      : list[str]    = opts
         self.target_os : str          = target_os
         self.targets   : list[Target] = []
 
-    def generate(self, parent):
-        self.build_dir = npath_join(parent.build_dir, self.name)
-        self.src_dir = resolve_variables(self.src_dir, parent.variables)
+        self.build_dir = npath_join(self.parent.build_dir, self.name)
+        self.src_dir = resolve_variables(self.src_dir, self.parent.variables)
 
         self.api_dir = npath_join(self.build_dir, ".cmake", "api", "v1")
         self.query_dir = npath_join(self.api_dir, "query")
@@ -326,20 +326,25 @@ class CMake:
                 if info["is_library"]:
                     print(f"Target: {name}")
 
-                    # Print artifacts (output files)
                     print("  Output Files:")
-                    for artifact in info["artifacts"]:
-                        print(f"    - {artifact['output_name']} (Path: {artifact['path']})")
+                    for it in info["artifacts"]:
+                        print(f"    - {it['output_name']} (Path: {it['path']})")
 
-                    # Print include directories
                     print("  Include Directories:")
-                    for include_dir in info["include_directories"]:
-                        print(f"    - {include_dir}")
+                    for it in info["include_directories"]:
+                        print(f"    - {it}")
 
-                    # Print link libraries
+                    print("  Compile definitions:")
+                    for it in info["compile_definitions"]:
+                        print(f"    - {it}")
+
+                    print("  Compile options:")
+                    for it in info["compile_options"]:
+                        print(f"    - {it}")
+
                     print("  Link Libraries:")
-                    for lib in info["link_libraries"]:
-                        print(f"    - {lib}")
+                    for it in info["link_libraries"]:
+                        print(f"    - {it}")
 
                     print("-" * 80)
                 else:
@@ -351,7 +356,8 @@ class CMake:
     def lib(self, target_name : str) -> Target:
         for name, info in self.targets_info.items():
             if name == target_name and info["type"] == "STATIC_LIBRARY":
-                #print("found lib in CMake submodule: {}, artifacts: {}".format(name, info["artifacts"]))
+                if self.parent.verbose:
+                    print("found lib in CMake submodule: {}".format(info))
                 target = Target(target_name, "lib", self.src_dir, self.target_os)
                 target.out = npath_join("$builddir", self.name, info["artifacts"][0]["path"])
                 include_path(target, info["include_directories"], public=True)
@@ -426,8 +432,7 @@ class Ninja:
         return t
 
     def cmake(self, name : str, src_dir : str = "", opts : list[str] = None) -> CMake:
-        t = CMake(name, src_dir, self.target_os, opts)
-        t.generate(self)
+        t = CMake(name, self, src_dir, self.target_os, opts)
         self.cmakes.append(t)
         return t
 
