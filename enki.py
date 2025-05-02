@@ -354,6 +354,9 @@ class CMake:
                 #print("found lib in CMake submodule: {}, artifacts: {}".format(name, info["artifacts"]))
                 target = Target(target_name, "lib", self.src_dir, self.target_os)
                 target.out = npath_join("$builddir", self.name, info["artifacts"][0]["path"])
+                include_path(target, info["include_directories"], public=True)
+                define(target, info["compile_definitions"], public=True)
+
                 self.targets.append(target)
                 return target
 
