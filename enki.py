@@ -121,19 +121,6 @@ class Target:
 
             flibs.append(f_lib(lib))
 
-            # for path in self.lib_paths:
-            #     fpath = resolve_variables(path, parent.variables)
-            #     fpath = os.path.join(fpath, dylib)
-            #
-            #     if os.path.exists(fpath):
-            #         lpath = os.path.join(path, dylib)
-            #         if os.path.islink(fpath):
-            #             rpath = os.path.realpath(fpath)
-            #             print("dylib: {}, fpath: {}, lpath: {}, rpath: {}".format(dylib, fpath, lpath, rpath))
-            #
-            #         copy(self, lpath, "$builddir/{}".format(dylib))
-            #         break
-
         objects : list[str] = []
         if self.objects:
             for obj in self.objects:
@@ -451,56 +438,6 @@ class Ninja:
 
         self.test_targets.append(t)
         return t
-
-    def generate_compile_commands(self):
-        json = open(os.path.join(self.build_dir, "compile_commands.json"), "w")
-        json.write("[\n")
-
-        for t in self.targets:
-            src_dir = resolve_variables(t.src_dir, self.variables)
-            src_dir = src_dir.replace("\\", "/")
-
-            for o in t.objects:
-                source = src(o.source, t.src_dir)
-                source = resolve_variables(source, self.variables)
-                source = relpath(source, src_dir)
-
-                command = resolve_variables(self.rules[o.rule], self.variables)
-                command = command.replace("$in", source)
-                command = command.replace("$out", o.out)
-
-                for k, flags in t.flags.items():
-                    sflags = " ".join(flags)
-                    command = command.replace("$%sflags" % k, sflags)
-
-                if t.rule in t.flags:
-                   command = command.replace("$flags", " ".join(t.flags[t.rule]))
-
-                for k, flags in self.flags.items():
-                    sflags = " ".join(flags)
-                    command = command.replace("$%sflags" % k, sflags)
-
-                if t.rule in self.flags:
-                   command = command.replace("$flags", " ".join(self.flags[t.rule]))
-
-                oflags = " ".join(o.flags)
-                command = command.replace("$flags", oflags)
-
-                for rule in self.flags.keys():
-                    if rule not in t.flags:
-                        command = command.replace(rule, "")
-
-                command = resolve_variables(command, self.variables)
-                command = command.replace('\\', '/')
-                command = command.replace('"', '\\"')
-
-                json.write('\t{\n');
-                json.write('\t\t\"file": "%s",\n' % source)
-                json.write('\t\t\"directory": "%s",\n' % src_dir)
-                json.write('\t\t\"command": "%s",\n' % command)
-                json.write('\t},\n');
-        json.write("]\n")
-
 
     def generate(self):
         root_dir = os.path.realpath(self.root)
