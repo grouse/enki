@@ -602,7 +602,7 @@ def resolve_variables(s : str, variables : dict[str, str]) -> str:
     return s
 
 def src(source : str, src_dir : str):
-    if not source.startswith("$"):
+    if not source.startswith("$") and not os.path.isabs(source):
         return npath_join(src_dir, source)
 
     return source
