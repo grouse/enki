@@ -493,6 +493,11 @@ class Ninja:
                   pool = "console",
                   restat = True)
 
+        if self.host_os == "win32":
+            writer.rule("compdb", "cmd /c \"ninja -C $dir -t compdb > $out\"", pool = "console", restat = True)
+        else:
+            writer.rule("compdb", "ninja -C $dir -t compdb > $out", pool = "console", restat = True)
+
         # file util rules
         if self.host_os == "linux":
             writer.rule("copy", "cp $in $out", description = "COPY $out")
@@ -535,9 +540,8 @@ class Ninja:
 
         # compile commands database
         writer.newline()
-        writer.build(npath_join("$builddir", "compile_commands.json"), "ninja")
+        writer.build(npath_join("$builddir", "compile_commands.json"), "compdb")
         writer.variable("dir", "$builddir", 1)
-        writer.variable("target", "-t compdb > compile_commands.json", 1)
 
         # targets
         writer.newline()
