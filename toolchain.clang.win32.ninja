@@ -10,7 +10,6 @@ rule cxx
 
 rule link
     command = clang++ -Wl,-nodefaultlib:libcmt -D_DLL -lmsvcrt $linkflags -o $out $in $libs
-    depfile = $out.d
     description = CC $in
 
 rule ar
