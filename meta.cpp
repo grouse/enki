@@ -237,7 +237,6 @@ bool eat_whitespace(const char **p, const char *end)
 struct CursorAttributes {
     int exported     : 1;
     int internal     : 1;
-    int in_namespace : 1;
     int test         : 1;
 };
 
@@ -908,21 +907,15 @@ void emit_proc_decl(FILE *f, CXTranslationUnit tu, CXCursor cursor, CursorAttrib
     DEBUG_LOG("generating proc decl: %s", proc_sz);
 
     defer { fwrite("\n", 1, 1, f); };
-    if (attributes.in_namespace) {
-        if (!attributes.internal) fprintf(f, "namespace PUBLIC { ");
-        else fprintf(f, "namespace { ");
-    }
-    defer { if (attributes.in_namespace) fprintf(f, " }"); };
 
     CX_StorageClass storage = clang_Cursor_getStorageClass(cursor);
     switch (storage) {
     case CX_SC_Invalid:
         break;
     case CX_SC_None:
-        if (!attributes.in_namespace) {
-            if (!attributes.internal) fwrite("extern ", 1, 7, f);
-            else fwrite("static ", 1, 7, f);
-        } break;
+        if (!attributes.internal) fwrite("extern ", 1, 7, f);
+        else fwrite("static ", 1, 7, f);
+        break;
     case CX_SC_Extern:
         fwrite("extern ", 1, 7, f);
         break;
@@ -1125,11 +1118,7 @@ CXChildVisitResult clang_visitor(
         clang_visitChildren(cursor, clang_getAttributes, &cursor_d.attributes);
 
     auto cursor_kind = clang_getCursorKind(cursor);
-    if (cursor_kind == CXCursor_Namespace) {
-        if (!cursor_d.attributes.exported) return CXChildVisit_Continue;
-        cursor_d.attributes.in_namespace = true;
-        clang_visitChildren(cursor, clang_visitor, &cursor_d);
-    } else if (cursor_kind == CXCursor_FunctionDecl) {
+    if (cursor_kind == CXCursor_FunctionDecl) {
         if (!cursor_d.attributes.exported) return CXChildVisit_Continue;
 
         if (!cursor_d.attributes.test && !clang_Cursor_isInFile(cursor, in->src, in->h)) {
@@ -1324,9 +1313,6 @@ bool generate_header(const char *out_path, const char *src_path, CXTranslationUn
 
         emit_include_guard_begin(f, nullptr, name, "PUBLIC");
         defer { emit_include_guard_end(f, nullptr, name, "PUBLIC"); };
-
-        fprintf(f, "namespace PUBLIC {}\n");
-        fprintf(f, "using namespace PUBLIC;\n\n");
 
         for (auto decl : public_proc_decls) {
             emit_proc_decl(f, tu, decl->cursor, decl->attributes);
