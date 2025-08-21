@@ -1593,6 +1593,7 @@ int main(int argc, char **argv)
     out_path = sz_directory_of(out_path);
 
     CXIndex index = clang_createIndex(0, 0);
+    defer { clang_disposeIndex(index); };
 
     unsigned int flags =
         //CXTranslationUnit_SkipFunctionBodies |
