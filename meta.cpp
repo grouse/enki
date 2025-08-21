@@ -1612,16 +1612,17 @@ int main(int argc, char **argv)
     defer { clang_disposeTranslationUnit(tu); };
 
     if (result) {
-        const char *result_s = "";
+        const char *sz_result = "";
         switch (result) {
         case CXError_Success: break;
-        case CXError_Failure: result_s = "Failure"; break;
-        case CXError_Crashed: result_s = "Crashed"; break;
-        case CXError_InvalidArguments: result_s = "InvalidArguments"; break;
-        case CXError_ASTReadError: result_s = "ASTReadError"; break;
+        case CXError_Failure: sz_result = "Failure"; break;
+        case CXError_Crashed: sz_result = "Crashed"; break;
+        case CXError_InvalidArguments: sz_result = "InvalidArguments"; break;
+        case CXError_ASTReadError: sz_result = "ASTReadError"; break;
         }
 
-        FERROR("failed to parse translation unit: '%s'\n", result_s);
+        FERROR("failed to parse translation unit: '%s'\n", sz_result);
+        return 1;
     }
 
     if (!generate_header(out_path, src_filename, tu)) return 1;
