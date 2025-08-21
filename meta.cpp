@@ -1596,8 +1596,9 @@ int main(int argc, char **argv)
     defer { clang_disposeIndex(index); };
 
     unsigned int flags =
-        //CXTranslationUnit_SkipFunctionBodies |
+        CXTranslationUnit_SkipFunctionBodies |
         CXTranslationUnit_DetailedPreprocessingRecord |
+        CXTranslationUnit_KeepGoing |
         0;
 
     CXTranslationUnit tu;
