@@ -471,8 +471,8 @@ class Ninja:
 
         # toolchain
         writer.newline()
-        toolchain = "toolchain.{}.{}.ninja".format(self.compiler, self.host_os);
-        writer.include(npath_join(enki_dir, toolchain))
+        writer.include(npath_join(enki_dir, "toolchain.{}.ninja".format(self.host_os)))
+        writer.include(npath_join(enki_dir, "toolchain.{}.{}.ninja".format(self.compiler, self.host_os)))
 
         # user rules
         if self.rules: writer.newline()
@@ -495,21 +495,10 @@ class Ninja:
 
         if self.host_os == "win32":
             writer.rule("compdb", "cmd /c \"ninja -C $dir -t compdb > $out\"", pool = "console", restat = True)
-        else:
-            writer.rule("compdb", "ninja -C $dir -t compdb > $out", pool = "console", restat = True)
-
-        # file util rules
-        if self.host_os == "linux":
-            writer.rule("copy", "cp $in $out", description = "COPY $out")
-            writer.rule("symlink", "ln -s $in $out", description = "SYMLINK $out -> $in")
 
         # generate-header utility
         if self.host_os == "win32":
             writer.rule("meta", "$builddir/meta.exe $flags $in -o $out -- $cflags",
-                       description = "META $in",
-                       restat = True)
-        elif self.host_os == "linux":
-            writer.rule("meta", "$builddir/meta $flags $in -o $out -- $cflags",
                        description = "META $in",
                        restat = True)
 

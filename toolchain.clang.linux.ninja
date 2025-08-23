@@ -8,14 +8,10 @@ rule cxx
   description = CXX $in
   depfile = $out.d
 
-rule link
-  command = clang++ -o$out $in $linkflags $libs
-  description = LINK $out
-
 rule ar
   command = ar -rcs $arflags $out $in
   description = LIB $out
 
-rule touch
-  command = touch $out
-  description = TOUCH $out
+rule link
+  command = clang++ -o$out $in $linkflags $libs
+  description = LINK $out

@@ -1,0 +1,22 @@
+rule touch
+  command = touch $out
+  description = TOUCH $out
+
+rule copy
+  command = cp $in $out
+  description = COPY $out
+
+rule symlink
+  command = ln -s $in $out
+  description = SYMLINK $out -> $in
+
+rule compdb
+  command = ninja -C $dir -t compdb > $out
+  description = COMPILE DB
+  pool = console
+  restat = 1
+
+rule meta
+  command = $builddir/meta $flags $in -o $out -- $cflags
+  description = META $in
+  restat = 1
