@@ -1,0 +1,14 @@
+rule run
+  command = $in $flags
+  description = RUN $in
+  pool = console
+
+rule ninja
+  command = ninja -C $dir $target
+  pool = console
+  restat = 1
+
+rule cmake
+  command = cmake -GNinja $opts -S $in -B $dst
+  pool = console
+  restat = 1

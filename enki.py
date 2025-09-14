@@ -471,6 +471,7 @@ class Ninja:
 
         # toolchain
         writer.newline()
+        writer.include(npath_join(enki_dir, "toolchain.ninja"))
         writer.include(npath_join(enki_dir, "toolchain.{}.ninja".format(self.host_os)))
         writer.include(npath_join(enki_dir, "toolchain.{}.{}.ninja".format(self.compiler, self.host_os)))
 
@@ -478,29 +479,6 @@ class Ninja:
         if self.rules: writer.newline()
         for rule, info in self.rules.items():
             writer.rule(rule, info.command, info.description, info.depfile, info.generator, info.pool, info.restat, info.rspfile, info.rspfile_content, info.deps)
-
-        # generic run utility
-        writer.newline()
-        writer.rule("run", "$in $flags",
-                  description = "RUN $in",
-                  pool = "console")
-
-        # external project rules
-        writer.rule("ninja", "ninja -C $dir $target",
-                  pool = "console",
-                  restat = True)
-        writer.rule("cmake", "cmake -GNinja $opts -S $in -B $dst",
-                  pool = "console",
-                  restat = True)
-
-        if self.host_os == "win32":
-            writer.rule("compdb", "cmd /c \"ninja -C $dir -t compdb > $out\"", pool = "console", restat = True)
-
-        # generate-header utility
-        if self.host_os == "win32":
-            writer.rule("meta", "$builddir/meta.exe $flags $in -o $out -- $cflags",
-                       description = "META $in",
-                       restat = True)
 
         # built-in meta target
         meta = self.executable("meta", "$root/tools/enki")

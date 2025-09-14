@@ -15,7 +15,3 @@ rule link
 rule ar
     command = lld-link.exe /lib "/OUT:$out" /nologo $arflags $in
     description = LIB $out
-
-rule touch
-    command = cmd /c type nul > "$out"
-    description = TOUCH $out
