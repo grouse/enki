@@ -3,7 +3,7 @@ rule touch
     description = TOUCH $out
 
 rule compdb
-  command = "cmd /c \"ninja -c $dir -t compdb > $out\""
+  command = cmd /c "ninja -c $dir -t compdb > $out"
   description = COMPILE DB
   pool = console
   restat = 1
