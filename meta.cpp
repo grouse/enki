@@ -1343,9 +1343,6 @@ bool generate_header(const char *out_path, const char *src_path, CXTranslationUn
         .out_dir = out_path,
     };
 
-    char internal_out_path[4096];
-    snprintf(internal_out_path, sizeof internal_out_path, "%s/internal", out_path);
-
     char flecs_out_path[4096];
     snprintf(flecs_out_path, sizeof flecs_out_path, "%s/flecs", out_path);
 
@@ -1356,7 +1353,6 @@ bool generate_header(const char *out_path, const char *src_path, CXTranslationUn
     bool generate_flecs = flecs_component_decls || flecs_tag_decls || flecs_enum_tag_decls;
 
     std::filesystem::create_directories(out_path);
-    std::filesystem::create_directories(internal_out_path);
     if (generate_tests) std::filesystem::create_directories(tests_out_path);
     if (generate_flecs) std::filesystem::create_directories(flecs_out_path);
 
@@ -1377,30 +1373,26 @@ bool generate_header(const char *out_path, const char *src_path, CXTranslationUn
         }
         defer { fclose(f); };
 
-        emit_include_guard_begin(f, nullptr, name, "PUBLIC");
-        defer { emit_include_guard_end(f, nullptr, name, "PUBLIC"); };
+        if (public_proc_decls) {
+            emit_include_guard_begin(f, nullptr, name, "GENERATED");
+            defer { emit_include_guard_end(f, nullptr, name, "GENERATED"); };
 
-        for (auto decl : public_proc_decls) {
-            emit_proc_decl(f, tu, decl->cursor, decl->attributes);
+            for (auto decl : public_proc_decls) {
+                emit_proc_decl(f, tu, decl->cursor, decl->attributes);
+            }
         }
-    }
 
-    //if (internal_proc_decls)
-    {
-        char path[4096];
-        snprintf(path, sizeof path, "%s/%.*s.h", internal_out_path, src_name_len, src_filename);
+        if (internal_proc_decls) {
+            fprintf(
+                f,
+                "\n#if defined(%s_INTERNAL) && !defined(%s_INTERNAL_ONCE)\n",
+                name, name);
+            fprintf(f, "#define %s_INTERNAL_ONCE\n\n", name);
+            defer { fprintf(f, "\n#endif\n"); };
 
-        FILE *f = nullptr;
-        if (f = fopen(path, "wb"); !f) {
-            FERROR("failed to open out.file '%s': %s\n", path, strerror(errno));
-        }
-        defer { fclose(f); };
-
-        emit_include_guard_begin(f, nullptr, name, "INTERNAL");
-        defer { emit_include_guard_end(f, nullptr, name, "INTERNAL"); };
-
-        for (auto decl : internal_proc_decls) {
-            emit_proc_decl(f , tu, decl->cursor, decl->attributes);
+            for (auto decl : internal_proc_decls) {
+                emit_proc_decl(f , tu, decl->cursor, decl->attributes);
+            }
         }
     }
 
