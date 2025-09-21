@@ -724,7 +724,9 @@ def meta(t : Target, sources : list[str], flags : list[str] = None):
 
     for source in sources:
         source_name = os.path.splitext(source)[0]
+        if source_name.startswith("$"): source_name = os.path.basename(source)
         out = npath_join("$gendir", normpath(source_name+".h"))
+
         objfile = npath_join("$objdir", normpath(source_name+".o"))
         depfile = objfile+".d"
 
