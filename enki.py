@@ -47,6 +47,8 @@ class Target:
         self.type      = type
         self.target_os = target_os
 
+        self.meta = False
+
         self._flags : dict[list[str]] = dict()
         self._flags["c"] = []
 
@@ -652,6 +654,7 @@ def define(t : Target, vars : list[str], public = False) -> [str]:
 
 def cxx(t : Target, sources : list[str], deps : list[str] = None, flags : list[str] = None) -> list[Object]:
     if type(sources) is not list: return cxx(t, [sources], deps, flags)
+    if t.meta: meta(t, sources)
 
     objs : list[Object] = []
     for source in sources:
@@ -669,6 +672,7 @@ def cxx(t : Target, sources : list[str], deps : list[str] = None, flags : list[s
 
 def cc(t : Target, sources : list[str], deps : list[str] = None, flags : list[str] = None) -> list[Object]:
     if type(sources) is not list: return cc(t, [sources], deps, flags)
+    if t.meta: meta(t, sources)
 
     objs : list[Object] = []
     for source in sources:
