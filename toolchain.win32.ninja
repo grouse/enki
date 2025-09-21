@@ -9,6 +9,6 @@ rule compdb
   restat = 1
 
 rule meta
-  command = $builddir/meta.exe $flags $in -o $out -- $cflags
+  command = $builddir/meta.exe $flags --depfile $out.d $in -o $out -- $cflags
   description = META $in
   restat = 1

@@ -1,3 +1,4 @@
+#include "clang-c/CXFile.h"
 #include <cctype>
 #include <stdio.h>
 #include <stdlib.h>
@@ -24,6 +25,8 @@
 extern "C" CRTIMP char* strerror(int errnum) NOTHROW;
 extern "C" int strcmp(const char * str1, const char * str2) NOTHROW;
 extern "C" const char* strchr(const char * str1, int chr) NOTHROW;
+extern "C" const char* strchr(const char * str1, int chr) NOTHROW;
+extern "C" char* strstr( const char* str, const char* substr );
 extern "C" const char* strrchr(const char * str1, int chr) NOTHROW;
 extern "C" CRTIMP char* strdup(const char *str1 ) NOTHROW;
 extern "C" void* memcpy(void *dst, const void *src, size_t size) NOTHROW;
@@ -123,8 +126,7 @@ Defer<F> operator+ (DeferDummy, F&& f)
 #endif
 
 struct {
-    bool generate_flecs = false;
-    bool generate_tests = false;
+    const char *depfile = nullptr;
 } opts;
 
 const char *debug_trace_file = nullptr;
@@ -350,7 +352,7 @@ T* list_push(List<T> *list, Args... args)
 template<typename T, typename E>
 T* list_find(List<T> *list, E arg)
 {
-    for (T *ptr = list->ptr; ptr; ptr = ptr->next) {
+    for (auto *ptr = list->ptr; ptr; ptr = ptr->next) {
         if (*ptr == arg) return ptr;
     }
 
@@ -362,6 +364,27 @@ T* list_find(List<T> *list, E arg)
 
     return nullptr;
 }
+
+struct Include {
+    CXFile file;
+    Include *next;
+};
+
+Include* list_find(List<Include> *list, CXFile arg)
+{
+    for (auto *ptr = list->ptr; ptr; ptr = ptr->next) {
+        if (clang_File_isEqual(ptr->file, arg) != 0) return ptr;
+    }
+
+    if (list->ptr != &list->head) {
+        for (auto ptr : *list) {
+            if (clang_File_isEqual(ptr->file, arg) != 0) return ptr;
+        }
+    }
+
+    return nullptr;
+}
+
 
 struct FieldDecl {
     CXType type;
@@ -438,6 +461,8 @@ struct EnumTagDecl{
 
     bool operator==(const char *rhs) { return name && rhs && strcmp(name, rhs) == 0; }
 };
+
+List<Include> includes;
 
 // TODO(jesper): at least the struct decls really ought to be a hashmap at this point because it'll contain every structure in the translation unit, regardless of whether or not we need the type info, because we can't really back-track if we determine we need it
 List<StructDecl> struct_decls{};
@@ -1172,6 +1197,45 @@ CXChildVisitResult clang_visitor(
             if (!parse_decl_macro(&flecs_tag_decls, tu, cursor, NUM_TAG_ARGS))
                 ERROR(cursor, "error parsing tag decl");
         }
+    } else if (cursor_kind == CXCursor_InclusionDirective) {
+        CXFile file = clang_getIncludedFile(cursor);
+        CXString file_s = clang_File_tryGetRealPathName(file);
+        defer { clang_disposeString(file_s); };
+
+        const char *file_sz = clang_getCString(file_s);
+        if (!file_sz) return CXChildVisit_Continue;
+
+        if (strstr(file_sz, "/usr/") ||
+            strstr(file_sz, "/lib/"))
+        {
+            return CXChildVisit_Continue;
+        }
+
+        CXSourceRange range = clang_getCursorExtent(cursor);
+        CXTranslationUnit tu = clang_Cursor_getTranslationUnit(cursor);
+
+        CXToken* tokens;
+        unsigned num_tokens;
+        clang_tokenize(tu, range, &tokens, &num_tokens);
+        defer { clang_disposeTokens(tu, tokens, num_tokens); };
+
+        for (unsigned i = 0; i < num_tokens; i++) {
+            CXString token_str = clang_getTokenSpelling(tu, tokens[i]);
+            defer { clang_disposeString(token_str); };
+            const char* token_cstr = clang_getCString(token_str);
+
+            if (token_cstr[0] == '<') {
+                return CXChildVisit_Continue;
+            } else if (token_cstr[0] == '"') {
+                break;
+            }
+        }
+
+        if (clang_path_starts_with(file_s, cursor_d.out_dir) != 0 &&
+            !list_find(&includes, file))
+        {
+            list_push(&includes, file);
+        }
     }
 
     return CXChildVisit_Continue;
@@ -1288,13 +1352,13 @@ bool generate_header(const char *out_path, const char *src_path, CXTranslationUn
     char tests_out_path[4096];
     snprintf(tests_out_path, sizeof tests_out_path, "%s/tests", out_path);
 
-    opts.generate_tests = test_proc_decls;
-    opts.generate_flecs = flecs_component_decls || flecs_tag_decls || flecs_enum_tag_decls;
+    bool generate_tests = test_proc_decls;
+    bool generate_flecs = flecs_component_decls || flecs_tag_decls || flecs_enum_tag_decls;
 
     std::filesystem::create_directories(out_path);
     std::filesystem::create_directories(internal_out_path);
-    if (opts.generate_tests) std::filesystem::create_directories(tests_out_path);
-    if (opts.generate_flecs) std::filesystem::create_directories(flecs_out_path);
+    if (generate_tests) std::filesystem::create_directories(tests_out_path);
+    if (generate_flecs) std::filesystem::create_directories(flecs_out_path);
 
     char name[4096];
     snprintf(name, sizeof name, "%.*s", src_name_len, src_filename);
@@ -1340,7 +1404,7 @@ bool generate_header(const char *out_path, const char *src_path, CXTranslationUn
         }
     }
 
-    if (opts.generate_tests) {
+    if (generate_tests) {
         char path[4096];
         snprintf(path, sizeof path, "%s/%.*s.h", tests_out_path, src_name_len, src_filename);
 
@@ -1438,7 +1502,7 @@ bool generate_header(const char *out_path, const char *src_path, CXTranslationUn
         fprintf(f, "};\n");
     }
 
-    if (opts.generate_flecs) {
+    if (generate_flecs) {
         FILE *f = nullptr;
 
         char path[4096];
@@ -1534,6 +1598,34 @@ bool generate_header(const char *out_path, const char *src_path, CXTranslationUn
         fprintf(f, "#endif // defined(FLECS_%s_IMPL)\n", name);
     }
 
+    if (opts.depfile && includes) {
+        FILE *f = nullptr;
+        const char *path = opts.depfile;
+
+        char h_path[4096];
+        snprintf(h_path, sizeof h_path, "%s/%.*s.h", out_path, src_name_len, src_filename);
+
+        if (f = fopen(path, "wb"); !f) {
+            FERROR("failed to open out.file '%s': %s\n", path, strerror(errno));
+        }
+        defer { fclose(f); };
+
+        fprintf(f, "%s: \\\n", h_path);
+
+        for (auto it : includes) {
+            CXString file_s = clang_getFileName(it->file);
+            if (clang_String_isNull(file_s)) continue;
+
+            const char *file_sz = clang_getCString(file_s);
+            if (!file_sz) continue;
+            defer { clang_disposeString(file_s); };
+
+            if (strcmp(file_sz, h_path) == 0) continue;
+
+            fprintf(f, "  %s \\\n", file_sz);
+        }
+    }
+
     return true;
 }
 
@@ -1555,14 +1647,14 @@ int main(int argc, char **argv)
         if (argv[i][0] == '-') {
             if (argv[i][1] == '-') {
                 char *p = &argv[i][2];
-                if (strcmp(p, "flecs") == 0) opts.generate_flecs = true;
-                else if (strcmp(p, "tests") == 0) opts.generate_tests = true;
-                else if (strcmp(p, "trace-cursor") == 0) {
+                if (strcmp(p, "trace-cursor") == 0) {
                     debug_trace_cursor = argv[++i];
                     printf("trace-file: '%s'\n", debug_trace_cursor);
                 } else if (strcmp(p, "trace-file") == 0) {
                     debug_trace_file = argv[++i];
                     printf("trace-file: '%s'\n", debug_trace_file);
+                } else if (strcmp(p, "depfile") == 0) {
+                    opts.depfile = argv[++i];
                 } else if (*p == '\0') {
                     fargc = argc - i - 1;
                     fargv = argv + i + 1;
