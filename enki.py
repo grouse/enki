@@ -101,7 +101,14 @@ class Target:
             if k in parent._flags: t_flags[k].extend(parent._flags[k])
             t_flags[k].extend(v)
 
+        for d in self.deps:
+            for k, v in d.public_flags.items():
+                if k not in t_flags: t_flags[k] = []
+                t_flags[k].extend(v)
+
         for k, v in t_flags.items(): vars(n, k+"flags", v)
+
+
         n.newline()
 
         ogen_dep = []
@@ -713,10 +720,6 @@ def dep(t : Target, deps : list[Target]):
 
     for d in deps:
         t.deps.append(d)
-
-        for k, v in d.public_flags.items():
-            if k not in t._flags: t._flags[k] = []
-            t._flags[k].extend(v)
 
         for lib in d.libs:
             if lib not in t.libs: t.libs.append(lib)
