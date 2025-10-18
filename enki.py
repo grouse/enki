@@ -52,11 +52,12 @@ class Target:
         self._flags : dict[list[str]] = dict()
         self._flags["c"] = []
 
-        self.libs      = []
-        self.dylibs    = []
-        self.deps      = []
-        self.generated = []
-        self.objects   = []
+        self.libs        = []
+        self.public_libs = []
+        self.dylibs      = []
+        self.deps        = []
+        self.generated   = []
+        self.objects     = []
         self.variables : dict[str, str] = dict()
 
         self.lib_paths    : list[str] = []
@@ -107,7 +108,6 @@ class Target:
         if self.generated: ogen_dep.append("$objdir/%s.stamp" % self.name)
 
         flibs   : list[str] = []
-
         for lib in self.dylibs:
             dylib = lib
             if self.target_os == "linux":
@@ -145,6 +145,8 @@ class Target:
                 if d.type != "exe": objects.append(d.out)
             n.newline()
 
+        libs : list[str] = self.libs
+        for d in self.deps: libs.extend(d.public_libs)
         for lib in self.libs:
             if lib.endswith(".a"):
                 rlib = resolve_variables(lib, variables)
@@ -688,10 +690,11 @@ def cc(t : Target, sources : list[str], deps : list[str] = None, flags : list[st
     t.objects.extend(objs)
     return objs
 
-def lib(t : Target, libs : [str]) -> [str]:
-    if type(libs) is not list: return lib(t, [libs])
+def lib(t : Target, libs : [str], public = False) -> [str]:
+    if type(libs) is not list: return lib(t, [libs], public)
 
     t.libs.extend(libs)
+    if public: t.public_libs.extend(libs)
     return libs
 
 def dylib(t : Target, name : str):
