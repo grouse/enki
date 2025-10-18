@@ -1461,6 +1461,13 @@ bool generate_header(const char *out_path, const char *src_path, CXTranslationUn
             fprintf(f, "};\n\n");
         }
 
+        qsort(
+            categories.data, categories.count, sizeof *categories.data,
+            [](const void *lhs, const void *rhs) -> int
+            {
+                return strcmp(*(char**)lhs, *(char**)rhs);
+            });
+
 
         fprintf(f, "TestSuite %s__tests[] = {\n", name);
         for (int i = 0; i < categories.count; i++) {
