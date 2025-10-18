@@ -1444,7 +1444,7 @@ bool generate_header(const char *out_path, const char *src_path, CXTranslationUn
 
         for (int i = 1; i < categories.count; i++) {
             char *category = categories[i];
-            fprintf(f, "TestSuite %s_%s_tests[] = {\n", name, category);
+            fprintf(f, "TestSuite %s__%s__tests[] = {\n", name, category);
 
             for (auto decl : procs[i]) {
                 const char *test_name = decl.name;
@@ -1458,17 +1458,25 @@ bool generate_header(const char *out_path, const char *src_path, CXTranslationUn
                 fprintf(f, "\t{ \"%s\", %s },\n", test_name, decl.name);
             }
 
-            fprintf(f, "};\n");
+            fprintf(f, "};\n\n");
         }
 
 
-        fprintf(f, "TestSuite %s_tests[] = {\n", name);
+        fprintf(f, "TestSuite %s__tests[] = {\n", name);
         for (int i = 0; i < categories.count; i++) {
             char *category = categories[i];
             if (category && *category) {
+                fprintf(f, "\t{ \"");
+                for (char *it = category; *it; it++) {
+                    if (*it == '_' && *(it+1) == '_') {
+                        fputc('/', f);
+                        it++;
+                    } else fputc(*it, f);
+                }
+                fprintf(f, "\"");
+
                 fprintf(
-                    f, "\t{ \"%s\", nullptr, %s_%s_tests, sizeof(%s_%s_tests)/sizeof(%s_%s_tests[0]) },\n",
-                    category,
+                    f, ", nullptr, %s__%s__tests, sizeof(%s__%s__tests)/sizeof(%s__%s__tests[0]) },\n",
                     name, category,
                     name, category,
                     name, category);
@@ -1485,10 +1493,9 @@ bool generate_header(const char *out_path, const char *src_path, CXTranslationUn
                     fprintf(f, "\t{ \"%s\", %s },\n", test_name, decl.name);
                 }
             }
-
         }
         fprintf(f, "};\n");
-    }
+    } 
 
     if (generate_flecs) {
         char flecs_out_path[4096];
