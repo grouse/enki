@@ -1147,7 +1147,7 @@ CXChildVisitResult clang_visitor(
     if (cursor_kind == CXCursor_FunctionDecl) {
         if (!cursor_d.attributes.exported) return CXChildVisit_Continue;
 
-        if (!cursor_d.attributes.test && !clang_Cursor_isInFile(cursor, in->src, in->h)) {
+        if (!clang_Cursor_isInFile(cursor, in->src, in->h)) {
             DEBUG_LOG("skipping cursor: '%s', not in src (%s) or its header (%s)", cursor_sz, in->src, in->h);
             return CXChildVisit_Continue;
         }
@@ -1354,7 +1354,7 @@ bool generate_header(const char *out_path, const char *src_path, CXTranslationUn
 
     std::filesystem::create_directories(out_path);
 
-    //if (public_proc_decls)
+    //if (public_proc_decls || internal_proc_decls)
     {
         char path[4096];
         snprintf(path, sizeof path, "%s/%.*s.h", out_path, src_name_len, src_filename);
