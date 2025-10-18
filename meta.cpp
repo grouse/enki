@@ -1343,24 +1343,16 @@ bool generate_header(const char *out_path, const char *src_path, CXTranslationUn
         .out_dir = out_path,
     };
 
-    char flecs_out_path[4096];
-    snprintf(flecs_out_path, sizeof flecs_out_path, "%s/flecs", out_path);
-
-    char tests_out_path[4096];
-    snprintf(tests_out_path, sizeof tests_out_path, "%s/tests", out_path);
-
-    bool generate_tests = test_proc_decls;
-    bool generate_flecs = flecs_component_decls || flecs_tag_decls || flecs_enum_tag_decls;
-
-    std::filesystem::create_directories(out_path);
-    if (generate_tests) std::filesystem::create_directories(tests_out_path);
-    if (generate_flecs) std::filesystem::create_directories(flecs_out_path);
-
     char name[4096];
     snprintf(name, sizeof name, "%.*s", src_name_len, src_filename);
     for (char *p = name; *p; p++) *p = toupper(*p);
 
     clang_visitChildren(cursor, clang_visitor, &data);
+
+    bool generate_tests = test_proc_decls;
+    bool generate_flecs = flecs_component_decls || flecs_tag_decls || flecs_enum_tag_decls;
+
+    std::filesystem::create_directories(out_path);
 
     //if (public_proc_decls)
     {
@@ -1397,6 +1389,10 @@ bool generate_header(const char *out_path, const char *src_path, CXTranslationUn
     }
 
     if (generate_tests) {
+        char tests_out_path[4096];
+        snprintf(tests_out_path, sizeof tests_out_path, "%s/tests", out_path);
+        std::filesystem::create_directories(tests_out_path);
+
         char path[4096];
         snprintf(path, sizeof path, "%s/%.*s.h", tests_out_path, src_name_len, src_filename);
 
@@ -1495,6 +1491,10 @@ bool generate_header(const char *out_path, const char *src_path, CXTranslationUn
     }
 
     if (generate_flecs) {
+        char flecs_out_path[4096];
+        snprintf(flecs_out_path, sizeof flecs_out_path, "%s/flecs", out_path);
+        std::filesystem::create_directories(flecs_out_path);
+
         FILE *f = nullptr;
 
         char path[4096];
