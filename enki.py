@@ -56,6 +56,7 @@ class Target:
         self.public_libs = []
         self.dylibs      = []
         self.deps        = []
+        self.public_deps = []
         self.generated   = []
         self.objects     = []
         self.variables : dict[str, str] = dict()
@@ -93,6 +94,9 @@ class Target:
 
         if self.dylibs: self._flags["link"].append("-Wl,-rpath,'$$ORIGIN'")
 
+        deps  = self.deps
+        for dep in deps: deps.extend(dep.public_deps)
+
         t_flags = dict()
         for k, v in self._flags.items():
             if not v: continue
@@ -101,7 +105,7 @@ class Target:
             if k in parent._flags: t_flags[k].extend(parent._flags[k])
             t_flags[k].extend(v)
 
-        for d in self.deps:
+        for d in deps:
             for k, v in d.public_flags.items():
                 if k not in t_flags: t_flags[k] = []
                 t_flags[k].extend(v)
@@ -715,14 +719,16 @@ def symlink(t : Target, src : str, dst : str):
     obj = Object("symlink", src,  dst)
     t.objects.append(obj)
 
-def dep(t : Target, deps : list[Target]):
-    if type(deps) is not list: return dep(t, [deps])
+def dep(t : Target, deps : list[Target], public = True):
+    if type(deps) is not list: return dep(t, [deps], public)
 
-    for d in deps:
-        t.deps.append(d)
-
-        for lib in d.libs:
-            if lib not in t.libs: t.libs.append(lib)
+    t.deps.extend(deps)
+    if public: t.public_deps.extend(deps)
+    # for d in deps:
+    #     t.deps.append(d)
+    #
+    #     for lib in d.libs:
+    #         if lib not in t.libs: t.libs.append(lib)
 
 
 def meta(t : Target, sources : list[str], flags : list[str] = None):
