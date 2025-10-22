@@ -445,10 +445,9 @@ class Ninja:
         self.cmakes.append(t)
         return t
 
-    def test(self, parent : Target, src_dir : str, include_header : str = None) -> Target:
-        t = Target("test.%s" % parent.name, "exe", src_dir, self.target_os)
+    def test(self, name : str, src_dir : str, include_header : str = None) -> Target:
+        t = Target("test.%s" % name, "exe", src_dir, self.target_os)
         for rule, info in self.rules.items(): t._flags[rule] = []
-        dep(t, parent)
 
         if include_header:
             t._flags["c"].append("-include " + include_header)
@@ -719,7 +718,7 @@ def symlink(t : Target, src : str, dst : str):
     obj = Object("symlink", src,  dst)
     t.objects.append(obj)
 
-def dep(t : Target, deps : list[Target], public = True):
+def dep(t : Target, deps : list[Target], public = False):
     if type(deps) is not list: return dep(t, [deps], public)
 
     t.deps.extend(deps)
