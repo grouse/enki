@@ -1,15 +1,15 @@
 # TODO
-- [ ] resolve subcategories into parent/child hierarchy
 - [ ] [meta] can we avoid touching generated headers if its contents are identical to avoid recompilation of cpp files that include them?
     - might affect dependency and dirty tracking in ninja; touch a companion stamp file and depend on those instead
-- [ ] [meta] depfile for generated header
-    - re-using cpp -> o.d files does not work because they are specific to the output file
-    - I might need meta to generate its own depfile, hopefully LLVM/libclang has support for this built in, or clang bin has flags to generate just the depfiles without any other compilation
 
 
 # DONE
-- [x] meta depfile support
+- [x] [meta] depfile for generated header
+    - re-using cpp -> o.d files does not work because they are specific to the output file
+    - I might need meta to generate its own depfile, hopefully LLVM/libclang has support for this built in, or clang bin has flags to generate just the depfiles without any other compilation
+- [x] resolve subcategories into parent/child hierarchy
     - e.g. for meta(tests.cpp) to auto-regenerate based on all the #includes its doing
+- [x] meta depfile support
 - [x] move generated header folders into target src dirs
     - each target needs to be able to just #include "gen/file" and not have things polluted by outside targets
     - I want to be able to commit the generated headers, allowing better change tracking and distribution
