@@ -1519,7 +1519,6 @@ bool generate_header(const char *out_path, const char *src_path, CXTranslationUn
         defer { fclose(f); };
 
         emit_include_guard_begin(f, "FLECS", name, nullptr);
-        emit_include(f, "flecs_util.h");
 
         fprintf(f, "\nextern void flecs_register_%.*s(flecs::world &ecs);\n", src_name_len, src_filename);
 
