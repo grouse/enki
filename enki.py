@@ -529,7 +529,6 @@ class Ninja:
         for t in self.targets:
             filename = t.name + ".ninja"
             path = os.path.join(self.build_dir, filename)
-
             t.generate(ninja.Writer(open(path, "w")), self)
             writer.subninja(npath_join("$builddir", filename))
 
@@ -540,10 +539,9 @@ class Ninja:
         for t in self.test_targets:
             filename = t.name + ".ninja"
             path = os.path.join(self.build_dir, filename)
-            writer.subninja(npath_join("$builddir", filename))
-
             w = ninja.Writer(open(path, "w"))
             t.generate(w, self)
+            writer.subninja(npath_join("$builddir", filename))
 
             w.newline()
             w.build("$builddir/%s.stamp" % t.name, "run", "$builddir/{}{}".format(t.name, t.ext))
