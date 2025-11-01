@@ -12,6 +12,8 @@ def dict_merge(a: dict, b: dict, path=[]):
         if key in a:
             if isinstance(a[key], dict) and isinstance(b[key], dict):
                 dict_merge(a[key], b[key], path + [str(key)])
+            elif type(a[key]) is list: 
+                a[key].extend(b[key])
             else:
                 a[key] = b[key]
         else:
@@ -703,6 +705,11 @@ def lib(t : Target, libs : [str], public = False) -> [str]:
     t.libs.extend(libs)
     if public: t.public_libs.extend(libs)
     return libs
+
+def flags(t : Target, flags : [str], public = False) -> [str]:
+    dict_merge(t._flags, flags)
+    if public: dict_merge(t.public_flags, flags)
+    return flags 
 
 def dylib(t : Target, name : str):
     t.dylibs.append(name)
