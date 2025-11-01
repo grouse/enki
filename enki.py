@@ -445,12 +445,9 @@ class Ninja:
         self.cmakes.append(t)
         return t
 
-    def test(self, name : str, src_dir : str, include_header : str = None) -> Target:
+    def test(self, name : str, src_dir : str) -> Target:
         t = Target("test.%s" % name, "exe", src_dir, self.target_os)
         for rule, info in self.rules.items(): t._flags[rule] = []
-
-        if include_header:
-            t._flags["c"].append("-include " + include_header)
 
         self.test_targets.append(t)
         return t
