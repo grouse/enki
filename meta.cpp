@@ -13,6 +13,8 @@
 #define XXH_INLINE_ALL
 #include "xxHash/xxhash.h"
 
+#define META_VERSION 1
+
 #if defined(_WIN32)
 #define NOTHROW
 #define CRTIMP __declspec(dllimport)
@@ -1450,7 +1452,7 @@ bool generate_header(const char *out_path, const char *src_path, CXTranslationUn
 
         HashedFile f{};
         XXH3_INITSTATE(&f.hash);
-        XXH3_128bits_reset(&f.hash);
+        XXH3_128bits_reset_withSeed(&f.hash, META_VERSION);
 
         defer { 
             XXH128_hash_t curr = {};
@@ -1470,6 +1472,15 @@ bool generate_header(const char *out_path, const char *src_path, CXTranslationUn
             if (!XXH128_isEqual(hash, curr)) {
                 printf("%s: file written\n", path);
                 if (FILE *fp = fopen(path, "wb")) {
+                    fprintf(fp, "// ");
+
+                    XXH128_canonical_t cano;
+                    XXH128_canonicalFromHash(&cano, hash);
+                    for(size_t i = 0; i < sizeof(cano.digest); ++i) {
+                        fprintf(fp, "%02x", cano.digest[i]);
+                    }
+                    fprintf(fp, "\n\n");
+
                     for (auto *it = &f.stream.head; it; it = it->next) {
                         fwrite(it->data, 1, it->count, fp);
                     }
