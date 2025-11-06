@@ -1,14 +1,17 @@
-#include "clang-c/CXFile.h"
 #include <cctype>
 #include <stdio.h>
 #include <stdlib.h>
 #include <errno.h>
+#include <stdarg.h>
 
 #include <filesystem>
 
 #include <clang-c/Index.h>
 #include <clang-c/CXString.h>
+#include <clang-c/CXFile.h>
 
+#define XXH_INLINE_ALL
+#include "xxHash/xxhash.h"
 
 #if defined(_WIN32)
 #define NOTHROW
@@ -21,14 +24,13 @@
 #define CRTIMP
 #endif
 
-
 extern "C" CRTIMP char* strerror(int errnum) NOTHROW;
 extern "C" int strcmp(const char * str1, const char * str2) NOTHROW;
-extern "C" const char* strchr(const char * str1, int chr) NOTHROW;
-extern "C" const char* strchr(const char * str1, int chr) NOTHROW;
-extern "C" const char* strstr( const char* str, const char* substr ) NOTHROW;
-extern "C" const char* strrchr(const char * str1, int chr) NOTHROW;
-extern "C" CRTIMP char* strdup(const char *str1 ) NOTHROW;
+extern CRTIMP const char* strchr(const char * str1, int chr) NOTHROW;
+extern const char* strchr(const char * str1, int chr) NOTHROW;
+extern const char* strstr( const char* str, const char* substr ) NOTHROW;
+extern const char* strrchr(const char * str1, int chr) NOTHROW;
+extern "C" char* strdup(const char *str1 ) NOTHROW;
 extern "C" void* memcpy(void *dst, const void *src, size_t size) NOTHROW;
 extern "C" size_t strlen(const char * str) NOTHROW;
 
@@ -124,6 +126,58 @@ Defer<F> operator+ (DeferDummy, F&& f)
     } while(0)
 
 #endif
+
+struct HashedFile {
+    FILE *stream;
+    XXH3_state_t hash;
+};
+
+void print_hash(XXH128_hash_t hash, const char *path)
+{
+    XXH128_canonical_t cano;
+    XXH128_canonicalFromHash(&cano, hash);
+    size_t i;
+
+    printf("%s: ", path);
+    for(i = 0; i < sizeof(cano.digest); ++i) {
+        printf("%02x", cano.digest[i]);
+    }
+    printf("\n");
+}
+
+void file_write_bytes(HashedFile *f, const void *data, int size)
+{
+    fwrite(data, 1, size, f->stream);
+    XXH3_128bits_update(&f->hash, data, size);
+}
+
+void file_write(HashedFile *f, const char *str)
+{
+    file_write_bytes(f, str, strlen(str));
+}
+
+void file_writec(HashedFile *f, char c)
+{
+    file_write_bytes(f, &c, 1);
+}
+
+void file_writef(HashedFile *f, const char *fmt, ...)
+{
+    va_list args;
+    va_start(args, fmt);
+
+    char buffer[4096];
+
+    int length = vsnprintf(buffer, sizeof buffer-1, fmt, args);
+    va_end(args);
+
+    if (length >= sizeof buffer) {
+        FERROR("buffer overflow");
+        return;
+    } 
+
+    file_write_bytes(f, buffer, length);
+}
 
 struct {
     const char *depfile = nullptr;
@@ -922,7 +976,7 @@ bool parse_decl_macro(List<T> *decls, CXTranslationUnit tu, CXCursor cursor, int
     return true;
 }
 
-void emit_proc_decl(FILE *f, CXTranslationUnit tu, CXCursor cursor, CursorAttributes attributes)
+void emit_proc_decl(HashedFile *f, CXTranslationUnit tu, CXCursor cursor, CursorAttributes attributes)
 {
     CXString cursor_s = clang_getCursorSpelling(cursor);
     defer { clang_disposeString(cursor_s); };
@@ -932,22 +986,21 @@ void emit_proc_decl(FILE *f, CXTranslationUnit tu, CXCursor cursor, CursorAttrib
     const char *proc_sz = clang_getCString(proc_s);
     DEBUG_LOG("generating proc decl: %s", proc_sz);
 
-    defer { fwrite("\n", 1, 1, f); };
+    defer { file_write(f, "\n"); };
 
     CX_StorageClass storage = clang_Cursor_getStorageClass(cursor);
     switch (storage) {
     case CX_SC_Invalid:
         break;
     case CX_SC_None:
-        if (!attributes.internal) fwrite("extern ", 1, 7, f);
-        else fwrite("static ", 1, 7, f);
+        if (!attributes.internal) file_write(f, "extern ");
+        else file_write(f, "static ");
         break;
     case CX_SC_Extern:
-        fwrite("extern ", 1, 7, f);
+        file_write(f, "extern ");
         break;
     case CX_SC_Static:
-        fwrite("static ", 1, 7, f);
-        break;
+        file_write(f, "static ");
     case CX_SC_PrivateExtern:
     case CX_SC_OpenCLWorkGroupLocal:
     case CX_SC_Auto:
@@ -962,10 +1015,10 @@ void emit_proc_decl(FILE *f, CXTranslationUnit tu, CXCursor cursor, CursorAttrib
     defer { clang_disposeString(ret_t_s); };
     DEBUG_LOG("\tret type: %s", clang_getCString(ret_t_s));
 
-    fprintf(f, "%s", clang_getCString(ret_t_s));
-    if (ret_t.kind != CXType_Pointer) fwrite(" ", 1, 1, f);
-    fprintf(f, "%s(", proc_sz);
-    defer { fwrite(");", 1, 2, f); };
+    file_write(f, clang_getCString(ret_t_s));
+    if (ret_t.kind != CXType_Pointer) file_write(f, " ");
+    file_writef(f, "%s(", proc_sz);
+    defer { file_write(f, ");"); };
 
     int arg_count = clang_Cursor_getNumArguments(cursor);
     if (arg_count) DEBUG_LOG("\targ count: %d", arg_count);
@@ -1039,18 +1092,19 @@ void emit_proc_decl(FILE *f, CXTranslationUnit tu, CXCursor cursor, CursorAttrib
                 CXString arg_t_s = clang_getTypeSpelling(elem_t);
                 defer { clang_disposeString(arg_t_s); };
 
-                fprintf(f, "%s", clang_getCString(arg_t_s));
+                file_write(f, clang_getCString(arg_t_s));
 
-                if (has_arg_name) fwrite(" ", 1, 1, f);
-                fprintf(f, "%s[%lld]", clang_getCString(arg_s), elem_count);
+                if (has_arg_name) file_write(f, " ");
+                file_writef(f, "%s[%lld]", clang_getCString(arg_s), elem_count);
             } else {
                 CXString arg_t_s = clang_getTypeSpelling(arg_t);
 
                 defer { clang_disposeString(arg_t_s); };
-                fprintf(f, "%s", clang_getCString(arg_t_s));
+                file_write(f, clang_getCString(arg_t_s));
 
-                if (arg_t.kind != CXType_Pointer && has_arg_name) fwrite(" ", 1, 1, f);
-                fprintf(f, "%s", clang_getCString(arg_s));
+                if (arg_t.kind != CXType_Pointer && has_arg_name)
+                    file_write(f, " ");
+                file_write(f, clang_getCString(arg_s));
             }
 
             if (arg_comment) {
@@ -1080,12 +1134,12 @@ void emit_proc_decl(FILE *f, CXTranslationUnit tu, CXCursor cursor, CursorAttrib
                     while (p > default_v && p[-1] == ' ') p--;
 
                     int length = (int)(p-default_v);
-                    fprintf(f, " %.*s", length, default_v);
+                    file_writef(f, " %.*s", length, default_v);
                     DEBUG_LOG("\targ[%d] default value: '%.*s'", i, length, default_v);
                 }
             }
 
-            if (i < arg_count - 1) fwrite(", ", 1, 2, f);
+            if (i < arg_count - 1) file_write(f, ", ");
         }
     }
 }
@@ -1241,7 +1295,7 @@ CXChildVisitResult clang_visitor(
     return CXChildVisit_Continue;
 }
 
-void emit_include_guard_begin(FILE *f, const char *prefix, const char *name, const char *suffix)
+void emit_include_guard_begin(HashedFile *f, const char *prefix, const char *name, const char *suffix)
 {
     char guard[4096];
     if (prefix && suffix) snprintf(guard, sizeof guard, "%s_%s_%s", prefix, name, suffix);
@@ -1249,11 +1303,11 @@ void emit_include_guard_begin(FILE *f, const char *prefix, const char *name, con
     else if (suffix) snprintf(guard, sizeof guard, "%s_%s", name, suffix);
     else snprintf(guard, sizeof guard, "%s", name);
 
-    fprintf(f, "#ifndef %s_H\n", guard);
-    fprintf(f, "#define %s_H\n\n", guard);
+    file_writef(f, "#ifndef %s_H\n", guard);
+    file_writef(f, "#define %s_H\n\n", guard);
 }
 
-void emit_include_guard_end(FILE *f, const char *prefix, const char *name, const char *suffix)
+void emit_include_guard_end(HashedFile *f, const char *prefix, const char *name, const char *suffix)
 {
     char guard[4096];
     if (prefix && suffix) snprintf(guard, sizeof guard, "%s_%s_%s", prefix, name, suffix);
@@ -1261,34 +1315,34 @@ void emit_include_guard_end(FILE *f, const char *prefix, const char *name, const
     else if (suffix) snprintf(guard, sizeof guard, "%s_%s", name, suffix);
     else snprintf(guard, sizeof guard, "%s", name);
 
-    fprintf(f, "\n#endif // %s_H\n", guard);
+    file_writef(f, "\n#endif // %s_H\n", guard);
 }
 
 template<typename T>
-void emit_decls(FILE *f, List<T> decls, const char *fmt)
+void emit_decls(HashedFile *f, List<T> decls, const char *fmt)
 {
     if (!decls) return;
 
-    fprintf(f, "\n");
+    file_write(f, "\n");
     for (auto decl : decls) {
-        fprintf(f, fmt, decl->name);
-        fprintf(f, "\n");
+        file_writef(f, fmt, decl->name);
+        file_write(f, "\n");
     }
 }
 
-void emit_include(FILE *f, const char *path)
+void emit_include(HashedFile *f, const char *path)
 {
-    fprintf(f, "#include \"%s\"\n", path);
+    file_writef(f, "#include \"%s\"\n", path);
 }
 
-void emit_flecs_component_members(FILE *f, StructDecl *decl)
+void emit_flecs_component_members(HashedFile *f, StructDecl *decl)
 {
     for (auto field : decl->fields) {
         if (field->is_base_type) {
             auto *base_decl = list_find(&struct_decls, field->name);
             if (!base_decl) FERROR("no base decl for field: %s", field->name);
 
-            fprintf(f, "\n\t\t.member(Ecs%s, 0, \"%s\", 1, offsetof(%s, %s))",
+            file_writef(f, "\n\t\t.member(Ecs%s, 0, \"%s\", 1, offsetof(%s, %s))",
                     field->name, field->name,
                     decl->name, base_decl->fields.head.next->name);
         } else if (clang_isArray(field->type)) {
@@ -1298,7 +1352,7 @@ void emit_flecs_component_members(FILE *f, StructDecl *decl)
             CXString field_t_s = clang_getTypeSpelling(elem_t);
             defer { clang_disposeString(field_t_s); };
 
-            fprintf(f, "\n\t\t.member<%s>(\"%s\", %lld, offsetof(%s, %s))",
+            file_writef(f, "\n\t\t.member<%s>(\"%s\", %lld, offsetof(%s, %s))",
                     clang_getCString(field_t_s),
                     field->name,
                     elem_count,
@@ -1307,7 +1361,7 @@ void emit_flecs_component_members(FILE *f, StructDecl *decl)
             CXString field_t_s = clang_getTypeSpelling(field->type);
             defer { clang_disposeString(field_t_s); };
 
-            fprintf(f, "\n\t\t.member(\"%s\", &%s::%s)",
+            file_writef(f, "\n\t\t.member(\"%s\", &%s::%s)",
                     field->name,
                     decl->name, field->name);
         }
@@ -1356,34 +1410,64 @@ bool generate_header(const char *out_path, const char *src_path, CXTranslationUn
 
     //if (public_proc_decls || internal_proc_decls)
     {
-        char path[4096];
+        char path[4096], swp_path[4096], hsh_path[4096];
         snprintf(path, sizeof path, "%s/%.*s.h", out_path, src_name_len, src_filename);
+        snprintf(swp_path, sizeof swp_path, "%s/%.*s.h~", out_path, src_name_len, src_filename);
+        snprintf(hsh_path, sizeof hsh_path, "%s/%.*s.h.hash", out_path, src_name_len, src_filename);
 
-        FILE *f = nullptr;
-        if (f = fopen(path, "wb"); !f) {
+        HashedFile f{ fopen(swp_path, "wb") };
+        XXH3_INITSTATE(&f.hash);
+        XXH3_128bits_reset(&f.hash);
+
+        if (!f.stream) {
             FERROR("failed to open out.file '%s': %s\n", path, strerror(errno));
         }
-        defer { fclose(f); };
+        defer { 
+            fclose(f.stream);
+
+            XXH128_hash_t curr = {};
+            if (auto *s = fopen(hsh_path, "rb"); s) {
+                fseek(s, 0, SEEK_END);
+                long size = ftell(s);
+                fseek(s, 0, SEEK_SET);
+                if (size == sizeof curr) {
+                    fread(&curr, sizeof curr, 1, s);
+                }
+                fclose(s);
+            }
+
+            XXH128_hash_t hash = XXH3_128bits_digest(&f.hash);
+            if (!XXH128_isEqual(hash, curr)) {
+                printf("%s: file written\n", path);
+                rename(swp_path, path);
+            } else {
+                remove(swp_path);
+            }
+
+            if (auto *s = fopen(hsh_path, "wb"); s) {
+                fwrite(&hash, 1, sizeof hash, s);
+                fclose(s);
+            }
+        };
 
         if (public_proc_decls) {
-            emit_include_guard_begin(f, nullptr, name, "GENERATED");
-            defer { emit_include_guard_end(f, nullptr, name, "GENERATED"); };
+            emit_include_guard_begin(&f, nullptr, name, "GENERATED");
+            defer { emit_include_guard_end(&f, nullptr, name, "GENERATED"); };
 
             for (auto decl : public_proc_decls) {
-                emit_proc_decl(f, tu, decl->cursor, decl->attributes);
+                emit_proc_decl(&f, tu, decl->cursor, decl->attributes);
             }
         }
 
         if (internal_proc_decls) {
-            fprintf(
-                f,
+            file_writef(&f,
                 "\n#if defined(%s_INTERNAL) && !defined(%s_INTERNAL_ONCE)\n",
                 name, name);
-            fprintf(f, "#define %s_INTERNAL_ONCE\n\n", name);
-            defer { fprintf(f, "\n#endif\n"); };
+            file_writef(&f, "#define %s_INTERNAL_ONCE\n\n", name);
+            defer { file_write(&f, "\n#endif\n"); };
 
             for (auto decl : internal_proc_decls) {
-                emit_proc_decl(f , tu, decl->cursor, decl->attributes);
+                emit_proc_decl(&f , tu, decl->cursor, decl->attributes);
             }
         }
     }
@@ -1396,19 +1480,22 @@ bool generate_header(const char *out_path, const char *src_path, CXTranslationUn
         char path[4096];
         snprintf(path, sizeof path, "%s/%.*s.h", tests_out_path, src_name_len, src_filename);
 
-        FILE *f = nullptr;
-        if (f = fopen(path, "wb"); !f) {
+        HashedFile f{ fopen(path, "wb") };
+        XXH3_INITSTATE(&f.hash);
+        XXH3_128bits_reset(&f.hash);
+
+        if (!f.stream) {
             FERROR("failed to open out.file '%s': %s\n", path, strerror(errno));
         }
-        defer { fclose(f); };
+        defer { fclose(f.stream); };
 
-        emit_include_guard_begin(f, nullptr, name, "TEST");
-        defer { emit_include_guard_end(f, nullptr, name, "TEST"); };
+        emit_include_guard_begin(&f, nullptr, name, "TEST");
+        defer { emit_include_guard_end(&f, nullptr, name, "TEST"); };
 
         for (auto decl : test_proc_decls) {
-            emit_proc_decl(f , tu, decl->cursor, decl->attributes);
+            emit_proc_decl(&f , tu, decl->cursor, decl->attributes);
         }
-        fprintf(f, "\n");
+        file_write(&f, "\n");
 
         DynamicArray<char*> categories{};
         array_add(&categories, (char*)"");
@@ -1444,7 +1531,7 @@ bool generate_header(const char *out_path, const char *src_path, CXTranslationUn
 
         for (int i = 1; i < categories.count; i++) {
             char *category = categories[i];
-            fprintf(f, "TestSuite %s__%s__tests[] = {\n", name, category);
+            file_writef(&f, "TestSuite %s__%s__tests[] = {\n", name, category);
 
             for (auto decl : procs[i]) {
                 const char *test_name = decl.name;
@@ -1455,10 +1542,10 @@ bool generate_header(const char *out_path, const char *src_path, CXTranslationUn
                     }
                 }
 
-                fprintf(f, "\t{ \"%s\", %s },\n", test_name, decl.name);
+                file_writef(&f, "\t{ \"%s\", %s },\n", test_name, decl.name);
             }
 
-            fprintf(f, "};\n\n");
+            file_write(&f, "};\n\n");
         }
 
         qsort(
@@ -1469,21 +1556,22 @@ bool generate_header(const char *out_path, const char *src_path, CXTranslationUn
             });
 
 
-        fprintf(f, "TestSuite %s__tests[] = {\n", name);
+        file_writef(&f, "TestSuite %s__tests[] = {\n", name);
         for (int i = 0; i < categories.count; i++) {
             char *category = categories[i];
             if (category && *category) {
-                fprintf(f, "\t{ \"");
+                file_write(&f, "\t{ \"");
                 for (char *it = category; *it; it++) {
                     if (*it == '_' && *(it+1) == '_') {
-                        fputc('/', f);
+                        file_writec(&f, '/');
                         it++;
-                    } else fputc(*it, f);
+                    } else file_writec(&f, *it);
                 }
-                fprintf(f, "\"");
+                file_write(&f, "\"");
 
-                fprintf(
-                    f, ", nullptr, %s__%s__tests, sizeof(%s__%s__tests)/sizeof(%s__%s__tests[0]) },\n",
+                file_writef(
+                    &f, 
+                    ", nullptr, %s__%s__tests, sizeof(%s__%s__tests)/sizeof(%s__%s__tests[0]) },\n",
                     name, category,
                     name, category,
                     name, category);
@@ -1497,11 +1585,11 @@ bool generate_header(const char *out_path, const char *src_path, CXTranslationUn
                         }
                     }
 
-                    fprintf(f, "\t{ \"%s\", %s },\n", test_name, decl.name);
+                    file_writef(&f, "\t{ \"%s\", %s },\n", test_name, decl.name);
                 }
             }
         }
-        fprintf(f, "};\n");
+        file_write(&f, "};\n");
     } 
 
     if (generate_flecs) {
@@ -1509,113 +1597,118 @@ bool generate_header(const char *out_path, const char *src_path, CXTranslationUn
         snprintf(flecs_out_path, sizeof flecs_out_path, "%s/flecs", out_path);
         std::filesystem::create_directories(flecs_out_path);
 
-        FILE *f = nullptr;
-
         char path[4096];
         snprintf(path, sizeof path, "%s/%.*s.h", flecs_out_path, src_name_len, src_filename);
-        if (f = fopen(path, "wb"); !f) {
+
+        HashedFile f{ fopen(path, "wb") };
+        XXH3_INITSTATE(&f.hash);
+        XXH3_128bits_reset(&f.hash);
+
+        if (!f.stream) {
             FERROR("failed to open out.file '%s': %s\n", path, strerror(errno));
         }
-        defer { fclose(f); };
+        defer { fclose(f.stream); };
 
-        emit_include_guard_begin(f, "FLECS", name, nullptr);
+        emit_include_guard_begin(&f, "FLECS", name, nullptr);
 
-        fprintf(f, "\nextern void flecs_register_%.*s(flecs::world &ecs);\n", src_name_len, src_filename);
+        file_writef(&f, "\nextern void flecs_register_%.*s(flecs::world &ecs);\n", src_name_len, src_filename);
 
-        emit_decls(f, flecs_tag_decls, "extern ECS_TAG_DECLARE(%s);");
-        emit_decls(f, flecs_enum_tag_decls, "extern ECS_COMPONENT_DECLARE(%s);");
-        emit_decls(f, flecs_component_decls, "extern ECS_COMPONENT_DECLARE(%s);");
+        emit_decls(&f, flecs_tag_decls, "extern ECS_TAG_DECLARE(%s);");
+        emit_decls(&f, flecs_enum_tag_decls, "extern ECS_COMPONENT_DECLARE(%s);");
+        emit_decls(&f, flecs_component_decls, "extern ECS_COMPONENT_DECLARE(%s);");
 
         if (flecs_component_decls || flecs_enum_tag_decls) {
-            fprintf(f, "\n");
+            file_write(&f, "\n");
             for (auto decl : flecs_enum_tag_decls) {
-                fprintf(f, "#define Ecs%s ecs_id(%s)\n", decl->name, decl->name);
+                file_writef(&f, "#define Ecs%s ecs_id(%s)\n", decl->name, decl->name);
             }
             for (auto decl : flecs_component_decls) {
-                fprintf(f, "#define Ecs%s ecs_id(%s)\n", decl->name, decl->name);
+                file_writef(&f, "#define Ecs%s ecs_id(%s)\n", decl->name, decl->name);
             }
         }
-        emit_include_guard_end(f, "FLECS", name, nullptr);
+        emit_include_guard_end(&f, "FLECS", name, nullptr);
 
-        fprintf(f, "\n\n#if defined(FLECS_%s_IMPL)\n", name);
-        emit_include_guard_begin(f, "FLECS", name, "IMPL_ONCE");
+        file_writef(&f, "\n\n#if defined(FLECS_%s_IMPL)\n", name);
+        emit_include_guard_begin(&f, "FLECS", name, "IMPL_ONCE");
 
-        emit_decls(f, flecs_tag_decls, "ECS_TAG_DECLARE(%s);");
-        emit_decls(f, flecs_enum_tag_decls, "ECS_COMPONENT_DECLARE(%s);");
-        emit_decls(f, flecs_component_decls, "ECS_COMPONENT_DECLARE(%s);");
+        emit_decls(&f, flecs_tag_decls, "ECS_TAG_DECLARE(%s);");
+        emit_decls(&f, flecs_enum_tag_decls, "ECS_COMPONENT_DECLARE(%s);");
+        emit_decls(&f, flecs_component_decls, "ECS_COMPONENT_DECLARE(%s);");
 
-        fprintf(f, "\nvoid flecs_register_%.*s(flecs::world &ecs)\n{\n", src_name_len, src_filename);
+        file_writef(&f, "\nvoid flecs_register_%.*s(flecs::world &ecs)\n{\n", src_name_len, src_filename);
         for (auto decl : flecs_tag_decls) {
-            fprintf(f, "\tECS_TAG_DEFINE(ecs, %s);\n", decl->name);
-            fprintf(f, "\tecs_add_id(ecs, ecs_id(%s), EcsPairIsTag);\n", decl->name);
+            file_writef(&f, "\tECS_TAG_DEFINE(ecs, %s);\n", decl->name);
+            file_writef(&f, "\tecs_add_id(ecs, ecs_id(%s), EcsPairIsTag);\n", decl->name);
 
             for (auto arg : decl->args[0]) {
-                fprintf(f, "\tecs_add_id(ecs, ecs_id(%s), %s);\n", decl->name, arg->name);
+                file_writef(&f, "\tecs_add_id(ecs, ecs_id(%s), %s);\n", decl->name, arg->name);
             }
-            if (decl->next) fprintf(f, "\n");
+            if (decl->next) file_write(&f, "\n");
         }
 
-        if (flecs_enum_tag_decls && flecs_tag_decls) fprintf(f, "\n");
+        if (flecs_enum_tag_decls && flecs_tag_decls) file_write(&f, "\n");
 
         for (auto decl : flecs_enum_tag_decls) {
-            fprintf(f, "\tECS_COMPONENT_DEFINE(ecs, %s);\n", decl->name);
-            fprintf(f, "\tecs_add(ecs, Ecs%s, EcsEnum);\n", decl->name);
+            file_writef(&f, "\tECS_COMPONENT_DEFINE(ecs, %s);\n", decl->name);
+            file_writef(&f, "\tecs_add(ecs, Ecs%s, EcsEnum);\n", decl->name);
 
             for (auto arg : decl->args[0]) {
-                fprintf(f, "\tecs_add_id(ecs, Ecs%s, %s);\n", decl->name, arg->name);
+                file_writef(&f, "\tecs_add_id(ecs, Ecs%s, %s);\n", decl->name, arg->name);
             }
 
             auto *enum_decl = list_find(&enum_decls, decl->name);
             if (!enum_decl) ERROR(cursor, "no enum decl for tag: %s", decl->name);
 
             for (auto constant : enum_decl->constants) {
-                fprintf(f, "\t{\tecs_entity_desc_t desc = { .name = \"%s\" };\n", constant->name);
-                fprintf(f, "\t\tecs_entity_t c = ecs_entity_init(ecs, &desc);\n");
-                fprintf(f, "\t\tecs_add(ecs, c, EcsEnum);\n");
-                fprintf(f, "\t\tecs_i32_t v = %lld;\n", constant->value);
-                fprintf(f, "\t\tecs_set_id(ecs, c, ecs_pair(EcsConstant, ecs_id(ecs_i32_t)), sizeof v, &v);\n");
-                fprintf(f, "\t}\n");
+                file_writef(&f, "\t{\tecs_entity_desc_t desc = { .name = \"%s\" };\n", constant->name);
+                file_writef(&f, "\t\tecs_entity_t c = ecs_entity_init(ecs, &desc);\n");
+                file_writef(&f, "\t\tecs_add(ecs, c, EcsEnum);\n");
+                file_writef(&f, "\t\tecs_i32_t v = %lld;\n", constant->value);
+                file_writef(&f, "\t\tecs_set_id(ecs, c, ecs_pair(EcsConstant, ecs_id(ecs_i32_t)), sizeof v, &v);\n");
+                file_write(&f, "\t}\n");
             }
         }
 
-        if (flecs_component_decls && (flecs_enum_tag_decls || flecs_tag_decls)) fprintf(f, "\n");
+        if (flecs_component_decls && (flecs_enum_tag_decls || flecs_tag_decls)) file_write(&f, "\n");
 
         for (auto decl : flecs_component_decls) {
-            fprintf(f, "\tECS_COMPONENT_DEFINE(ecs, %s);\n", decl->name);
-            fprintf(f, "\tecs.component<%s>()", decl->name);
+            file_writef(&f, "\tECS_COMPONENT_DEFINE(ecs, %s);\n", decl->name);
+            file_writef(&f, "\tecs.component<%s>()", decl->name);
 
             if (auto *struct_decl = list_find(&struct_decls, decl->name);
                 struct_decl)
             {
-                emit_flecs_component_members(f, struct_decl);
+                emit_flecs_component_members(&f, struct_decl);
             } else {
                 ERROR(cursor, "no struct or enum decl for component: %s", decl->name);
             }
 
-            for (auto arg : decl->args[0]) fprintf(f, "\n\t\t.add(%s)", arg->name);
+            for (auto arg : decl->args[0]) file_writef(&f, "\n\t\t.add(%s)", arg->name);
 
-            fprintf(f, ";\n");
-            if (decl->next) fprintf(f, "\n");
+            file_writef(&f, ";\n");
+            if (decl->next) file_writef(&f, "\n");
         }
-        fprintf(f, "}\n");
+        file_writef(&f, "}\n");
 
-        emit_include_guard_end(f, "FLECS", name, "IMPL_ONCE");
-        fprintf(f, "#endif // defined(FLECS_%s_IMPL)\n", name);
+        emit_include_guard_end(&f, "FLECS", name, "IMPL_ONCE");
+        file_writef(&f, "#endif // defined(FLECS_%s_IMPL)\n", name);
     }
 
     if (opts.depfile && includes) {
-        FILE *f = nullptr;
         const char *path = opts.depfile;
+
+        HashedFile f{ fopen(path, "wb") };
+        XXH3_INITSTATE(&f.hash);
+        XXH3_128bits_reset(&f.hash);
+
+        if (!f.stream) {
+            FERROR("failed to open out.file '%s': %s\n", path, strerror(errno));
+        }
+        defer { fclose(f.stream); };
 
         char h_path[4096];
         snprintf(h_path, sizeof h_path, "%s/%.*s.h", out_path, src_name_len, src_filename);
-
-        if (f = fopen(path, "wb"); !f) {
-            FERROR("failed to open out.file '%s': %s\n", path, strerror(errno));
-        }
-        defer { fclose(f); };
-
-        fprintf(f, "%s: \\\n", h_path);
+        file_writef(&f, "%s: \\\n", h_path);
 
         for (auto it : includes) {
             CXString file_s = clang_getFileName(it->file);
@@ -1627,7 +1720,7 @@ bool generate_header(const char *out_path, const char *src_path, CXTranslationUn
 
             if (strcmp(file_sz, h_path) == 0) continue;
 
-            fprintf(f, "  %s \\\n", file_sz);
+            file_writef(&f, "  %s \\\n", file_sz);
         }
     }
 

@@ -498,6 +498,7 @@ class Ninja:
         if self.host_os == "win32": define(meta, "_CRT_SECURE_NO_WARNINGS");
         lib_path(meta, "$builddir")
         include_path(meta, "$root/external/LLVM/include")
+        include_path(meta, "$root/external")
         cxx(meta, "meta.cpp")
 
         if self.target_os == "win32":
