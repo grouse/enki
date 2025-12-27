@@ -507,7 +507,7 @@ class Ninja:
             copy(meta, "$root/external/LLVM/lib/linux/libclang.so.21.1.8", "$builddir/libclang.so.21.1.8")
             symlink(meta, "$builddir/libclang.so.21.1.8", "$builddir/libclang.so.21")
             symlink(meta, "$builddir/libclang.so.21.1.8", "$builddir/libclang.so")
-            lib(meta, "clang")
+            dylib(meta, "clang")
 
         # cmake submodules
         writer.newline()
