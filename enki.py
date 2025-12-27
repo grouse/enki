@@ -504,10 +504,10 @@ class Ninja:
             lib_path(meta, "$root/external/LLVM/lib/win64")
             lib(meta, "libclang")
         elif self.target_os == "linux":
-            copy(meta, "$root/external/LLVM/lib/linux/libclang.so.17.0.2", "$builddir/libclang.so.17.0.2")
-            symlink(meta, "$builddir/libclang.so.17.0.2", "$builddir/libclang.so.17")
-            symlink(meta, "$builddir/libclang.so.17.0.2", "$builddir/libclang.so")
-            dylib(meta, "clang")
+            copy(meta, "$root/external/LLVM/lib/linux/libclang.so.21.1.8", "$builddir/libclang.so.21.1.8")
+            symlink(meta, "$builddir/libclang.so.21.1.8", "$builddir/libclang.so.21")
+            symlink(meta, "$builddir/libclang.so.21.1.8", "$builddir/libclang.so")
+            lib(meta, "clang")
 
         # cmake submodules
         writer.newline()
