@@ -1,6 +1,8 @@
 # TODO
-- [ ] [meta] can we avoid touching generated headers if its contents are identical to avoid recompilation of cpp files that include them?
+- [ ] [meta] avoid touching generated headers if its contents are identical to avoid recompilation of cpp files that include them
     - might affect dependency and dirty tracking in ninja; touch a companion stamp file and depend on those instead
+    - work started in hashing branch
+- [ ] [compdb] generate for CMake sub-targets
 
 
 # DONE
