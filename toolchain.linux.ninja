@@ -11,10 +11,16 @@ rule symlink
   description = SYMLINK $out -> $in
 
 rule compdb
-  command = ninja -C $dir -t compdb > $out
+  command = ninja -C $builddir -t compdb > $out
   description = COMPILE DB
-  pool = console
-  restat = 1
+
+rule compdb_subninja
+  command = ninja -C $dir -t compdb > $dir/compile_commands.json
+  description = COMPILE DB
+
+rule compdb_merge
+  command = python3 $root/tools/enki/merge_compdb.py $out $in
+  description = MERGE DB
 
 rule meta
   command = $builddir/meta $flags --depfile $out.d $in -o $out -- -DDO_TESTS $cflags

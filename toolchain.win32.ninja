@@ -3,10 +3,16 @@ rule touch
     description = TOUCH $out
 
 rule compdb
-  command = cmd /c "ninja -C $dir -t compdb > $out"
+  command = cmd /c "ninja -C $builddir -t compdb > $out"
   description = COMPILE DB
-  pool = console
-  restat = 1
+
+rule compdb_subninja
+  command = cmd /c "ninja -C $dir -t compdb > $dir/compile_commands.json"
+  description = COMPILE DB
+
+rule compdb_merge
+  command = python3 $root/tools/enki/merge_compdb.py $out $in
+  description = MERGE DB
 
 rule meta
   command = $builddir/meta.exe $metaflags --depfile $out.d $in -o $out -- $cflags

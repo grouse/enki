@@ -520,9 +520,18 @@ class Ninja:
                 writer.variable("dir", npath_join("$builddir", cmake.name), 1)
 
         # compile commands database
-        writer.newline()
-        writer.build(npath_join("$builddir", "compile_commands.json"), "compdb")
-        writer.variable("dir", "$builddir", 1)
+        compdb_targets : list[str] = []
+        writer.build(npath_join("$builddir", "compile_commands.main.json"), "compdb")
+        compdb_targets.append("$builddir/compile_commands.main.json")
+
+        for t in self.cmakes: 
+            writer.build("$builddir/%s/compile_commands.json" % t.name, "compdb_subninja")
+            writer.variable("dir", "$builddir/%s" % t.name, 1)
+
+            compdb_targets.append("$builddir/%s/compile_commands.json" % t.name)
+
+        if compdb_targets:
+            writer.build(npath_join("$builddir", "compile_commands.json"), "compdb_merge", compdb_targets)
 
         # targets
         writer.newline()
