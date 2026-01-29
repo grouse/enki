@@ -904,6 +904,7 @@ bool parse_decl_macro(List<T> *decls, CXTranslationUnit tu, CXCursor cursor)
             defer { clang_disposeString(tok_s); };
             if (is_pair) decl->args.ptr->second = strdup(clang_getCString(tok_s));
             else list_push(&decl->args, strdup(clang_getCString(tok_s)));
+            is_pair = false;
         }
     }
 
