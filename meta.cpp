@@ -149,10 +149,6 @@ void trace_parent(CXCursor cursor)
     printf("\tparent: %s (%s)", clang_getCString(parent_s), clang_getCString(kind_s));
 }
 
-#define NUM_COMPONENT_ARGS 1
-#define NUM_ENUM_ARGS 1
-#define NUM_TAG_ARGS 1
-
 struct TokenStream {
     CXTranslationUnit tu;
     CXToken *at;
@@ -322,8 +318,9 @@ struct ListIterator {
 
 template<typename T>
 struct List {
-    T head;
+    T head = {};
     T *ptr = &head;
+    int count = 0;
 
     ListIterator<T> begin() { return { head.next }; }
     ListIterator<T> end() { return { nullptr }; }
@@ -332,21 +329,19 @@ struct List {
 };
 
 template<typename T>
-void list_push(List<T> *list, T *elem)
+T* list_push(List<T> *list, T *elem)
 {
-    T *ptr = list->ptr;
-    while (ptr->next) ptr = ptr->next;
-
-    ptr->next = elem;
+    list->ptr->next = elem;
     list->ptr = elem;
+    list->count++;
+    return elem;
 }
 
 template<typename T, typename... Args>
 T* list_push(List<T> *list, Args... args)
 {
     auto *decl = new T { args... };
-    list_push(list, decl);
-    return decl;
+    return list_push(list, decl);
 }
 
 template<typename T, typename E>
@@ -429,7 +424,7 @@ struct ProcDecl {
 
 struct ComponentArg {
     char *name;
-
+    char *second;
     ComponentArg *next;
 
     bool operator==(const char *rhs) { return name && rhs && strcmp(name, rhs) == 0; }
@@ -437,7 +432,7 @@ struct ComponentArg {
 
 struct ComponentDecl {
     char *name;
-    List<ComponentArg> args[NUM_COMPONENT_ARGS];
+    List<ComponentArg> args;
 
     ComponentDecl *next;
 
@@ -446,7 +441,7 @@ struct ComponentDecl {
 
 struct TagDecl {
     char *name;
-    List<ComponentArg> args[NUM_TAG_ARGS];
+    List<ComponentArg> args;
 
     TagDecl *next;
 
@@ -455,7 +450,7 @@ struct TagDecl {
 
 struct EnumTagDecl{
     char *name;
-    List<ComponentArg> args[NUM_ENUM_ARGS];
+    List<ComponentArg> args;
 
     EnumTagDecl *next;
 
@@ -854,7 +849,7 @@ CXChildVisitResult clang_debugDumpChildren(
 }
 
 template<typename T>
-bool parse_decl_macro(List<T> *decls, CXTranslationUnit tu, CXCursor cursor, int arg_max)
+bool parse_decl_macro(List<T> *decls, CXTranslationUnit tu, CXCursor cursor)
 {
     CXSourceRange range = clang_getCursorExtent(cursor);
 
@@ -882,10 +877,11 @@ bool parse_decl_macro(List<T> *decls, CXTranslationUnit tu, CXCursor cursor, int
 
     CXString decl_s = clang_getTokenSpelling(stream.tu, *stream.at);
     defer { clang_disposeString(decl_s); };
-    list_push(decls, strdup(clang_getCString(decl_s)));
+    
+    T *decl = list_push(decls, strdup(clang_getCString(decl_s)));
 
     CXToken t;
-    int arg_index = -1;
+    bool is_pair = false;
     while (paren > 0) {
         if (!next_token(&stream, &t)) exit(1);
         CXTokenKind kind = clang_getTokenKind(t);
@@ -897,25 +893,17 @@ bool parse_decl_macro(List<T> *decls, CXTranslationUnit tu, CXCursor cursor, int
             if (clang_strcmp(tok_s, "(") == 0) paren++;
             else if (clang_strcmp(tok_s, ")") == 0) paren--;
             else if (clang_strcmp(tok_s, ",") == 0) {
-                arg_index++;
-                if (arg_index > arg_max) {
-                    ERROR(cursor, "too many arguments for decl: %s\n", decls->ptr->name);
-                    return false;
-                }
             } else if (clang_strcmp(tok_s, "|") == 0) {
-                if (arg_index < 0) {
-                    ERROR(cursor, "unexpected argument separator for decl: %s\n", decls->ptr->name);
-                    return false;
-                }
+                is_pair = true;
             } else {
                 ERROR(cursor, "unexpected puncutation: %s\n", clang_getCString(tok_s));
                 return false;
             }
         } else if (kind == CXToken_Identifier) {
-            if (arg_index < 0) ERROR(cursor, "unexpected argument\n");
             CXString tok_s = clang_getTokenSpelling(stream.tu, t);
             defer { clang_disposeString(tok_s); };
-            list_push(&decls->ptr->args[arg_index], strdup(clang_getCString(tok_s)));
+            if (is_pair) decl->args.ptr->second = strdup(clang_getCString(tok_s));
+            else list_push(&decl->args, strdup(clang_getCString(tok_s)));
         }
     }
 
@@ -1188,13 +1176,13 @@ CXChildVisitResult clang_visitor(
         const char *macro_sz = clang_getCString(macro_s);
 
         if (strcmp(macro_sz, "ECS_COMPONENT") == 0) {
-            if (!parse_decl_macro(&flecs_component_decls, tu, cursor, NUM_COMPONENT_ARGS))
+            if (!parse_decl_macro(&flecs_component_decls, tu, cursor))
                 ERROR(cursor, "error parsing component decl");
         } else if (strcmp(macro_sz, "ECS_ENUM") == 0) {
-            if (!parse_decl_macro(&flecs_enum_tag_decls, tu, cursor, NUM_ENUM_ARGS))
+            if (!parse_decl_macro(&flecs_enum_tag_decls, tu, cursor))
                 ERROR(cursor, "error parsing enum decl");
         } else if (strcmp(macro_sz, "ECS_TAG") == 0) {
-            if (!parse_decl_macro(&flecs_tag_decls, tu, cursor, NUM_TAG_ARGS))
+            if (!parse_decl_macro(&flecs_tag_decls, tu, cursor))
                 ERROR(cursor, "error parsing tag decl");
         }
     } else if (cursor_kind == CXCursor_InclusionDirective) {
@@ -1549,9 +1537,11 @@ bool generate_header(const char *out_path, const char *src_path, CXTranslationUn
             fprintf(f, "\tECS_TAG_DEFINE(ecs, %s);\n", decl->name);
             fprintf(f, "\tecs_add_id(ecs, ecs_id(%s), EcsPairIsTag);\n", decl->name);
 
-            for (auto arg : decl->args[0]) {
-                fprintf(f, "\tecs_add_id(ecs, ecs_id(%s), %s);\n", decl->name, arg->name);
+            for (auto arg : decl->args) {
+                if (arg->second) fprintf(f, "\tecs_add_id(ecs, ecs_id(%s), ecs_pair(%s, %s));\n", decl->name, arg->name, arg->second);
+                else fprintf(f, "\tecs_add_id(ecs, ecs_id(%s), %s);\n", decl->name, arg->name);
             }
+
             if (decl->next) fprintf(f, "\n");
         }
 
@@ -1561,8 +1551,9 @@ bool generate_header(const char *out_path, const char *src_path, CXTranslationUn
             fprintf(f, "\tECS_COMPONENT_DEFINE(ecs, %s);\n", decl->name);
             fprintf(f, "\tecs_add(ecs, Ecs%s, EcsEnum);\n", decl->name);
 
-            for (auto arg : decl->args[0]) {
-                fprintf(f, "\tecs_add_id(ecs, Ecs%s, %s);\n", decl->name, arg->name);
+            for (auto arg : decl->args) {
+                if (arg->second) fprintf(f, "\tecs_add_id(ecs, Ecs%s, ecs_pair(%s, %s));\n", decl->name, arg->name, arg->second);
+                else fprintf(f, "\tecs_add_id(ecs, Ecs%s, %s);\n", decl->name, arg->name);
             }
 
             auto *enum_decl = list_find(&enum_decls, decl->name);
@@ -1592,7 +1583,10 @@ bool generate_header(const char *out_path, const char *src_path, CXTranslationUn
                 ERROR(cursor, "no struct or enum decl for component: %s", decl->name);
             }
 
-            for (auto arg : decl->args[0]) fprintf(f, "\n\t\t.add(%s)", arg->name);
+            for (auto arg : decl->args) {
+                if (arg->second) fprintf(f, "\n\t\t.add(ecs_pair(%s, %s))", arg->name, arg->second);
+                else fprintf(f, "\n\t\t.add(%s)", arg->name);
+            }
 
             fprintf(f, ";\n");
             if (decl->next) fprintf(f, "\n");
