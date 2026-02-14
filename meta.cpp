@@ -1354,14 +1354,37 @@ bool generate_header(const char *out_path, const char *src_path, CXTranslationUn
         }
         defer { fclose(f); };
 
-        if (public_proc_decls) {
+        if (public_proc_decls || generate_flecs) {
             emit_include_guard_begin(f, nullptr, name, "GENERATED");
-            defer { emit_include_guard_end(f, nullptr, name, "GENERATED"); };
 
             for (auto decl : public_proc_decls) {
                 emit_proc_decl(f, tu, decl->cursor, decl->attributes);
             }
+
+            if (generate_flecs) {
+                fprintf(f, "\nextern void flecs_register_%.*s(flecs::world &ecs);\n", src_name_len, src_filename);
+
+                emit_decls(f, flecs_tag_decls, "extern ECS_TAG_DECLARE(%s);");
+                emit_decls(f, flecs_enum_tag_decls, "extern ECS_COMPONENT_DECLARE(%s);");
+                emit_decls(f, flecs_component_decls, "extern ECS_COMPONENT_DECLARE(%s);");
+
+                if (flecs_component_decls || flecs_enum_tag_decls) {
+                    fprintf(f, "\n");
+                    for (auto decl : flecs_enum_tag_decls) {
+                        fprintf(f, "#define Ecs%s ecs_id(%s)\n", decl->name, decl->name);
+                    }
+                    for (auto decl : flecs_component_decls) {
+                        fprintf(f, "#define Ecs%s ecs_id(%s)\n", decl->name, decl->name);
+                    }
+                }
+            }
+
+            emit_include_guard_end(f, nullptr, name, "GENERATED");
         }
+
+        fprintf(f, "\n#ifdef %s_GENERATED_IMPL\n", name);
+        fprintf(f, "#define %s_INTERNAL\n", name);
+        fprintf(f, "#endif\n");
 
         if (internal_proc_decls) {
             fprintf(
@@ -1374,6 +1397,78 @@ bool generate_header(const char *out_path, const char *src_path, CXTranslationUn
             for (auto decl : internal_proc_decls) {
                 emit_proc_decl(f , tu, decl->cursor, decl->attributes);
             }
+        }
+
+        if (generate_flecs) {
+            fprintf(f, "\n#if defined(%s_GENERATED_IMPL) && !defined(%s_GENERATED_IMPL_ONCE)\n", name, name);
+            fprintf(f, "#define %s_GENERATED_IMPL_ONCE\n", name);
+
+            emit_decls(f, flecs_tag_decls, "ECS_TAG_DECLARE(%s);");
+            emit_decls(f, flecs_enum_tag_decls, "ECS_COMPONENT_DECLARE(%s);");
+            emit_decls(f, flecs_component_decls, "ECS_COMPONENT_DECLARE(%s);");
+
+            fprintf(f, "\nvoid flecs_register_%.*s(flecs::world &ecs)\n{\n", src_name_len, src_filename);
+            for (auto decl : flecs_tag_decls) {
+                fprintf(f, "\tECS_TAG_DEFINE(ecs, %s);\n", decl->name);
+                fprintf(f, "\tecs_add_id(ecs, ecs_id(%s), EcsPairIsTag);\n", decl->name);
+
+                for (auto arg : decl->args) {
+                    if (arg->second) fprintf(f, "\tecs_add_id(ecs, ecs_id(%s), ecs_pair(%s, %s));\n", decl->name, arg->name, arg->second);
+                    else fprintf(f, "\tecs_add_id(ecs, ecs_id(%s), %s);\n", decl->name, arg->name);
+                }
+
+                if (decl->next) fprintf(f, "\n");
+            }
+
+            if (flecs_enum_tag_decls && flecs_tag_decls) fprintf(f, "\n");
+
+            for (auto decl : flecs_enum_tag_decls) {
+                fprintf(f, "\tECS_COMPONENT_DEFINE(ecs, %s);\n", decl->name);
+                fprintf(f, "\tecs_add(ecs, Ecs%s, EcsEnum);\n", decl->name);
+
+                for (auto arg : decl->args) {
+                    if (arg->second) fprintf(f, "\tecs_add_id(ecs, Ecs%s, ecs_pair(%s, %s));\n", decl->name, arg->name, arg->second);
+                    else fprintf(f, "\tecs_add_id(ecs, Ecs%s, %s);\n", decl->name, arg->name);
+                }
+
+                auto *enum_decl = list_find(&enum_decls, decl->name);
+                if (!enum_decl) ERROR(cursor, "no enum decl for tag: %s", decl->name);
+
+                for (auto constant : enum_decl->constants) {
+                    fprintf(f, "\t{\tecs_entity_desc_t desc = { .name = \"%s\" };\n", constant->name);
+                    fprintf(f, "\t\tecs_entity_t c = ecs_entity_init(ecs, &desc);\n");
+                    fprintf(f, "\t\tecs_add(ecs, c, EcsEnum);\n");
+                    fprintf(f, "\t\tecs_i32_t v = %lld;\n", constant->value);
+                    fprintf(f, "\t\tecs_set_id(ecs, c, ecs_pair(EcsConstant, ecs_id(ecs_i32_t)), sizeof v, &v);\n");
+                    fprintf(f, "\t}\n");
+                }
+            }
+
+            if (flecs_component_decls && (flecs_enum_tag_decls || flecs_tag_decls)) fprintf(f, "\n");
+
+            for (auto decl : flecs_component_decls) {
+                fprintf(f, "\tECS_COMPONENT_DEFINE(ecs, %s);\n", decl->name);
+                fprintf(f, "\tecs.component<%s>()", decl->name);
+
+                if (auto *struct_decl = list_find(&struct_decls, decl->name);
+                    struct_decl)
+                {
+                    emit_flecs_component_members(f, struct_decl);
+                } else {
+                    ERROR(cursor, "no struct or enum decl for component: %s", decl->name);
+                }
+
+                for (auto arg : decl->args) {
+                    if (arg->second) fprintf(f, "\n\t\t.add(ecs_pair(%s, %s))", arg->name, arg->second);
+                    else fprintf(f, "\n\t\t.add(%s)", arg->name);
+                }
+
+                fprintf(f, ";\n");
+                if (decl->next) fprintf(f, "\n");
+            }
+            fprintf(f, "}\n");
+
+            fprintf(f, "\n#endif // %s_GENERATED_IMPL\n", name);
         }
     }
 
@@ -1493,110 +1588,6 @@ bool generate_header(const char *out_path, const char *src_path, CXTranslationUn
         fprintf(f, "};\n");
     } 
 
-    if (generate_flecs) {
-        char flecs_out_path[4096];
-        snprintf(flecs_out_path, sizeof flecs_out_path, "%s/flecs", out_path);
-        std::filesystem::create_directories(flecs_out_path);
-
-        FILE *f = nullptr;
-
-        char path[4096];
-        snprintf(path, sizeof path, "%s/%.*s.h", flecs_out_path, src_name_len, src_filename);
-        if (f = fopen(path, "wb"); !f) {
-            FERROR("failed to open out.file '%s': %s\n", path, strerror(errno));
-        }
-        defer { fclose(f); };
-
-        emit_include_guard_begin(f, "FLECS", name, nullptr);
-
-        fprintf(f, "\nextern void flecs_register_%.*s(flecs::world &ecs);\n", src_name_len, src_filename);
-
-        emit_decls(f, flecs_tag_decls, "extern ECS_TAG_DECLARE(%s);");
-        emit_decls(f, flecs_enum_tag_decls, "extern ECS_COMPONENT_DECLARE(%s);");
-        emit_decls(f, flecs_component_decls, "extern ECS_COMPONENT_DECLARE(%s);");
-
-        if (flecs_component_decls || flecs_enum_tag_decls) {
-            fprintf(f, "\n");
-            for (auto decl : flecs_enum_tag_decls) {
-                fprintf(f, "#define Ecs%s ecs_id(%s)\n", decl->name, decl->name);
-            }
-            for (auto decl : flecs_component_decls) {
-                fprintf(f, "#define Ecs%s ecs_id(%s)\n", decl->name, decl->name);
-            }
-        }
-        emit_include_guard_end(f, "FLECS", name, nullptr);
-
-        fprintf(f, "\n\n#if defined(FLECS_%s_IMPL)\n", name);
-        emit_include_guard_begin(f, "FLECS", name, "IMPL_ONCE");
-
-        emit_decls(f, flecs_tag_decls, "ECS_TAG_DECLARE(%s);");
-        emit_decls(f, flecs_enum_tag_decls, "ECS_COMPONENT_DECLARE(%s);");
-        emit_decls(f, flecs_component_decls, "ECS_COMPONENT_DECLARE(%s);");
-
-        fprintf(f, "\nvoid flecs_register_%.*s(flecs::world &ecs)\n{\n", src_name_len, src_filename);
-        for (auto decl : flecs_tag_decls) {
-            fprintf(f, "\tECS_TAG_DEFINE(ecs, %s);\n", decl->name);
-            fprintf(f, "\tecs_add_id(ecs, ecs_id(%s), EcsPairIsTag);\n", decl->name);
-
-            for (auto arg : decl->args) {
-                if (arg->second) fprintf(f, "\tecs_add_id(ecs, ecs_id(%s), ecs_pair(%s, %s));\n", decl->name, arg->name, arg->second);
-                else fprintf(f, "\tecs_add_id(ecs, ecs_id(%s), %s);\n", decl->name, arg->name);
-            }
-
-            if (decl->next) fprintf(f, "\n");
-        }
-
-        if (flecs_enum_tag_decls && flecs_tag_decls) fprintf(f, "\n");
-
-        for (auto decl : flecs_enum_tag_decls) {
-            fprintf(f, "\tECS_COMPONENT_DEFINE(ecs, %s);\n", decl->name);
-            fprintf(f, "\tecs_add(ecs, Ecs%s, EcsEnum);\n", decl->name);
-
-            for (auto arg : decl->args) {
-                if (arg->second) fprintf(f, "\tecs_add_id(ecs, Ecs%s, ecs_pair(%s, %s));\n", decl->name, arg->name, arg->second);
-                else fprintf(f, "\tecs_add_id(ecs, Ecs%s, %s);\n", decl->name, arg->name);
-            }
-
-            auto *enum_decl = list_find(&enum_decls, decl->name);
-            if (!enum_decl) ERROR(cursor, "no enum decl for tag: %s", decl->name);
-
-            for (auto constant : enum_decl->constants) {
-                fprintf(f, "\t{\tecs_entity_desc_t desc = { .name = \"%s\" };\n", constant->name);
-                fprintf(f, "\t\tecs_entity_t c = ecs_entity_init(ecs, &desc);\n");
-                fprintf(f, "\t\tecs_add(ecs, c, EcsEnum);\n");
-                fprintf(f, "\t\tecs_i32_t v = %lld;\n", constant->value);
-                fprintf(f, "\t\tecs_set_id(ecs, c, ecs_pair(EcsConstant, ecs_id(ecs_i32_t)), sizeof v, &v);\n");
-                fprintf(f, "\t}\n");
-            }
-        }
-
-        if (flecs_component_decls && (flecs_enum_tag_decls || flecs_tag_decls)) fprintf(f, "\n");
-
-        for (auto decl : flecs_component_decls) {
-            fprintf(f, "\tECS_COMPONENT_DEFINE(ecs, %s);\n", decl->name);
-            fprintf(f, "\tecs.component<%s>()", decl->name);
-
-            if (auto *struct_decl = list_find(&struct_decls, decl->name);
-                struct_decl)
-            {
-                emit_flecs_component_members(f, struct_decl);
-            } else {
-                ERROR(cursor, "no struct or enum decl for component: %s", decl->name);
-            }
-
-            for (auto arg : decl->args) {
-                if (arg->second) fprintf(f, "\n\t\t.add(ecs_pair(%s, %s))", arg->name, arg->second);
-                else fprintf(f, "\n\t\t.add(%s)", arg->name);
-            }
-
-            fprintf(f, ";\n");
-            if (decl->next) fprintf(f, "\n");
-        }
-        fprintf(f, "}\n");
-
-        emit_include_guard_end(f, "FLECS", name, "IMPL_ONCE");
-        fprintf(f, "#endif // defined(FLECS_%s_IMPL)\n", name);
-    }
 
     if (opts.depfile && includes) {
         FILE *f = nullptr;
