@@ -7,6 +7,17 @@ from typing import Dict, List, Optional, Any
 
 import ninja_syntax as ninja
 
+class Config:
+    def __init__(self, config_type: str, render: str = "vulkan"):
+        self.type = config_type
+        self.render = render
+
+    def is_debug(self) -> bool:
+        return self.type in ("debug", "dev")
+
+    def is_release(self) -> bool:
+        return self.type == "release"
+
 def dict_merge(a: dict, b: dict, path=[]):
     for key in b:
         if key in a:
@@ -815,43 +826,6 @@ def meta(t : Target, sources : list[str], flags : list[str] = None):
         if flags: o.flags.extend(flags)
 
         t.generated.append(o)
-
-
-def generate_config(config_name, sourcedir, args, render_backend, verbose, configs):
-    """Generate ninja files for a specific configuration.
-
-    Args:
-        config_name: Name of the configuration (debug, dev, release)
-        sourcedir: Root source directory
-        args: Command line arguments for regeneration
-        render_backend: Rendering backend (vulkan or opengl)
-        verbose: Verbose output flag
-        configs: Dictionary with "common" and config-specific flags
-
-    Returns:
-        Tuple of (Ninja instance, config_data)
-    """
-    print(f"\n{'='*60}")
-    print(f"Generating configuration: {config_name}")
-    print(f"{'='*60}")
-
-    host_os = sys.platform
-    target_os = host_os
-    common = configs["common"]
-    config = configs[config_name]
-
-    build = Ninja(os.path.join("build", config_name), sourcedir, args, target_os)
-    build.verbose = verbose
-
-    # Apply common flags for all rules
-    for rule, flags_list in common["flags"].items():
-        build.flags(rule, flags_list)
-
-    # Apply config-specific flags for all rules
-    for rule, flags_list in config["flags"].items():
-        build.flags(rule, flags_list)
-
-    return build, config
 
 
 def generate_master_ninja(sourcedir, configs):
