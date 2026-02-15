@@ -448,7 +448,7 @@ class Ninja:
         return t
 
     def test(self, name : str, src_dir : str) -> Target:
-        t = Target("test.%s" % name, "exe", src_dir, self.target_os)
+        t = Target("tests/%s" % name, "exe", src_dir, self.target_os)
         for rule, info in self.rules.items(): t._flags[rule] = []
 
         self.test_targets.append(t)
@@ -554,6 +554,7 @@ class Ninja:
         for t in self.test_targets:
             filename = t.name + ".ninja"
             path = os.path.join(self.build_dir, filename)
+            os.makedirs(os.path.dirname(path), exist_ok=True)
             w = ninja.Writer(open(path, "w"))
             t.generate(w, self)
             writer.subninja(npath_join("$builddir", filename))
@@ -571,7 +572,7 @@ class Ninja:
 
         if gen_targets or test_targets: writer.newline()
         if gen_targets: writer.build("gen.all", "phony", gen_targets)
-        if test_targets: writer.build("test.all", "phony", test_targets)
+        if test_targets: writer.build("tests/all", "phony", test_targets)
 
         if self.default:
             writer.newline()
