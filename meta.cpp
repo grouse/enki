@@ -233,9 +233,10 @@ bool eat_whitespace(const char **p, const char *end)
 }
 
 struct CursorAttributes {
-    int exported     : 1;
-    int internal     : 1;
-    int test         : 1;
+    int exported          : 1;
+    int internal          : 1;
+    int test              : 1;
+    int integration_test  : 1;
 };
 
 struct ClangVisitorData {
@@ -466,6 +467,7 @@ List<ProcDecl> internal_proc_decls{};
 List<ProcDecl> public_proc_decls{};
 
 List<ProcDecl> test_proc_decls{};
+List<ProcDecl> integration_test_proc_decls{};
 
 List<ComponentDecl> flecs_component_decls{};
 List<TagDecl> flecs_tag_decls{};
@@ -570,6 +572,9 @@ CXChildVisitResult clang_getAttributes(
         } else if (clang_strcmp(cursor_name, "test") == 0) {
             data->exported = true;
             data->test = true;
+        } else if (clang_strcmp(cursor_name, "integration_test") == 0) {
+            data->exported = true;
+            data->integration_test = true;
         } else {
             DEBUG_LOG("unknown annotation: %s",  clang_getCString(cursor_name));
         }
@@ -1148,6 +1153,9 @@ CXChildVisitResult clang_visitor(
         } else if (cursor_d.attributes.test) {
             DEBUG_LOG("test proc: %s", proc_decl_sz);
             list_push(&test_proc_decls, strdup(proc_decl_sz), cursor, cursor_d.attributes);
+        } else if (cursor_d.attributes.integration_test) {
+            DEBUG_LOG("integration test proc: %s", proc_decl_sz);
+            list_push(&integration_test_proc_decls, strdup(proc_decl_sz), cursor, cursor_d.attributes);
         } else {
             DEBUG_LOG("public proc: %s", proc_decl_sz);
             list_push(&public_proc_decls, strdup(proc_decl_sz), cursor, cursor_d.attributes);
@@ -1339,6 +1347,7 @@ bool generate_header(const char *out_path, const char *src_path, CXTranslationUn
     clang_visitChildren(cursor, clang_visitor, &data);
 
     bool generate_tests = test_proc_decls;
+    bool generate_integration_tests = integration_test_proc_decls;
     bool generate_flecs = flecs_component_decls || flecs_tag_decls || flecs_enum_tag_decls;
 
     std::filesystem::create_directories(out_path);
@@ -1588,6 +1597,34 @@ bool generate_header(const char *out_path, const char *src_path, CXTranslationUn
         fprintf(f, "};\n");
     } 
 
+    if (generate_integration_tests) {
+        char tests_out_path[4096];
+        snprintf(tests_out_path, sizeof tests_out_path, "%s/tests", out_path);
+        std::filesystem::create_directories(tests_out_path);
+
+        char path[4096];
+        snprintf(path, sizeof path, "%s/%.*s.h", tests_out_path, src_name_len, src_filename);
+
+        FILE *f = nullptr;
+        if (f = fopen(path, "wb"); !f) {
+            FERROR("failed to open out.file '%s': %s\n", path, strerror(errno));
+        }
+        defer { fclose(f); };
+
+        emit_include_guard_begin(f, nullptr, name, "INTEGRATION_TEST");
+        defer { emit_include_guard_end(f, nullptr, name, "INTEGRATION_TEST"); };
+
+        for (auto decl : integration_test_proc_decls) {
+            emit_proc_decl(f, tu, decl->cursor, decl->attributes);
+        }
+        fprintf(f, "\n");
+
+        fprintf(f, "TestSuite %s__integration_tests[] = {\n", name);
+        for (auto decl : integration_test_proc_decls) {
+            fprintf(f, "\t{ \"%s\", %s, nullptr, 0, true },\n", decl->name, decl->name);
+        }
+        fprintf(f, "};\n");
+    }
 
     if (opts.depfile && includes) {
         FILE *f = nullptr;
@@ -1711,3 +1748,4 @@ int main(int argc, char **argv)
     if (!generate_header(out_path, src_filename, tu)) return 1;
     return 0;
 }
+
