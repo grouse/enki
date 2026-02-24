@@ -2,6 +2,14 @@ rule touch
     command = cmd /c type nul > "$out"
     description = TOUCH $out
 
+rule copy
+  command = cmd /c copy /Y "$in" "$out"
+  description = COPY $out
+
+rule symlink
+  command = cmd /c copy /Y "$in" "$out"
+  description = SYMLINK $out -> $in
+
 rule compdb
   command = cmd /c "ninja -C $builddir -t compdb > $out"
   description = COMPILE DB
