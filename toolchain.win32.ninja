@@ -19,7 +19,7 @@ rule compdb_subninja
   description = COMPILE DB
 
 rule compdb_merge
-  command = python3 $root/tools/enki/merge_compdb.py $out $in
+  command = python $root/tools/enki/merge_compdb.py $out $in
   description = MERGE DB
 
 rule meta
