@@ -415,7 +415,7 @@ class Ninja:
         if not os.path.exists(obj_dir): os.makedirs(obj_dir)
 
         self.variables["root"]     = self.root.replace("\\", "/")
-        self.variables["builddir"] = npath_join("$root", name)
+        self.variables["builddir"] = npath_join("$root", name).replace("\\", "/")
         self.variables["objdir"]   = npath_join("$builddir", "obj")
         self.variables["gendir"]   = npath_join("$builddir", "generated")
         self.variables["configure_args"] = " ".join(args)
