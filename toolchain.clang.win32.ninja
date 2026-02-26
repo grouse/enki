@@ -10,7 +10,7 @@ rule cxx
 
 rule link
     command = clang++ -Wl,-nodefaultlib:libcmt -D_DLL -lmsvcrt $linkflags -o $out $in $libs
-    description = CC $in
+    description = LINK $in
 
 rule ar
     command = lld-link.exe /lib "/OUT:$out" /nologo $arflags $in
