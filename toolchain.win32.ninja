@@ -7,7 +7,7 @@ rule copy
   description = COPY $out
 
 rule copy_dir
-  command = robocopy /mir "$in" "$out" & if errorlevel 8 (exit /b 1) else (exit /b 0)
+  command = cmd /c "robocopy /mir "$in" "$out" & if errorlevel 8 (exit /b 1) else (exit /b 0)"
   description = COPY DIR $out
 
 rule symlink
