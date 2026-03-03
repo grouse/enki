@@ -6,6 +6,10 @@ rule copy
   command = cp $in $out
   description = COPY $out
 
+rule copy_dir
+  command = rm -rf $out && cp -r $in $out
+  description = COPY DIR $out
+
 rule symlink
   command = ln -s $in $out
   description = SYMLINK $out -> $in

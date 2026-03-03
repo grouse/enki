@@ -407,6 +407,7 @@ class Ninja:
         self.test_targets : list[Target] = []
         self.rules        : dict[str, Rule] = dict()
         self.default      : Target = None
+        self.dist_copies  : list[tuple[str, str]] = []  # (src_dir, dest_name)
 
         self.build_dir = npath_join(root, name).replace("\\", "/")
         if not os.path.exists(self.build_dir): os.makedirs(self.build_dir)
@@ -457,6 +458,12 @@ class Ninja:
         t = CMake(name, self, src_dir, self.target_os, opts)
         self.cmakes.append(t)
         return t
+
+    def dist_copy(self, src_dir : str, dest_name : str = None):
+        """Register a directory to be copied into the dist output."""
+        if dest_name is None:
+            dest_name = os.path.basename(src_dir.rstrip("/"))
+        self.dist_copies.append((src_dir, dest_name))
 
     def test(self, name : str, src_dir : str) -> Target:
         t = Target("tests/%s" % name, "exe", src_dir, self.target_os)
@@ -633,6 +640,12 @@ class Ninja:
         if self.default:
             collect_dist_targets(self.default)
         
+        # Copy registered directories into dist
+        for src_dir, dest_name in self.dist_copies:
+            dist_out = npath_join("$builddir", "dist", dest_name)
+            writer.build(dist_out, "copy_dir", src_dir)
+            dist_targets.append(dist_out)
+
         if dist_targets:
             writer.newline()
             writer.build("dist", "phony", dist_targets)

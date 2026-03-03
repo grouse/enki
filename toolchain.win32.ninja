@@ -6,6 +6,10 @@ rule copy
   command = cmd /c copy /Y "$in" "$out"
   description = COPY $out
 
+rule copy_dir
+  command = cmd /c if exist "$out" rmdir /s /q "$out" && xcopy /e /i /y "$in" "$out"
+  description = COPY DIR $out
+
 rule symlink
   command = cmd /c copy /Y "$in" "$out"
   description = SYMLINK $out -> $in
