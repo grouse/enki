@@ -392,13 +392,14 @@ class CMake:
         return None
 
 class Ninja:
-    def __init__(self, name : str, root : str, args : str, target_os : str):
+    def __init__(self, name : str, root : str, args : str, target_os : str, config_type : str = "release"):
         self.verbose = False
         self.root      = root
 
-        self.host_os   = sys.platform
-        self.target_os = target_os
-        self.compiler  = "clang"
+        self.host_os    = sys.platform
+        self.target_os  = target_os
+        self.compiler   = "clang"
+        self.config_type = config_type
 
         self.variables    : dict[str, str] = dict()
         self._flags       : dict[str, list[str]] = dict()
@@ -601,6 +602,9 @@ class Ninja:
         writer.newline()
         writer.comment("dist targets")
         
+        # Whether to include PDB debug symbols in dist
+        has_pdb = self.target_os == "win32" and self.config_type in ("debug", "dev")
+
         # Collect all targets in the default target's dependency tree
         def collect_dist_targets(target, visited=None):
             if visited is None:
@@ -614,6 +618,14 @@ class Ninja:
                 dist_out = npath_join("$builddir", "dist", os.path.basename(target.out))
                 writer.build(dist_out, "copy", target.out)
                 dist_targets.append(dist_out)
+
+                # Copy PDB debug symbols for Windows debug/dev builds
+                if has_pdb:
+                    pdb_name = os.path.splitext(os.path.basename(target.out))[0] + ".pdb"
+                    pdb_src = npath_join("$builddir", pdb_name)
+                    pdb_out = npath_join("$builddir", "dist", pdb_name)
+                    writer.build(pdb_out, "copy", pdb_src)
+                    dist_targets.append(pdb_out)
             
             # For executables, also copy dylibs
             if target.type == "exe" and target.dylibs:
