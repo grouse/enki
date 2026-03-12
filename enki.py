@@ -243,26 +243,19 @@ class CMake:
         self.reply_dir = npath_join(self.api_dir, "reply")
         self.codemodel_query_dir = npath_join(self.query_dir, "codemodel-v2")
 
-        # NOTE: skip cmake if build.ninja and codemodel already exist (e.g. CI
-        # cache restore); re-running cmake would touch build.ninja and cause
-        # ninja to recompile all sources due to fresh-checkout timestamps
-        build_ninja = npath_join(self.build_dir, "build.ninja")
-        if os.path.exists(build_ninja) and self.find_codemodel_file():
-            print("Reusing existing CMake build: {}".format(self.build_dir))
-        else:
-            print("Generating CMake submodule: {}".format(self.src_dir))
-            os.makedirs(self.codemodel_query_dir, exist_ok=True)
+        print("Generating CMake submodule: {}".format(self.src_dir))
+        os.makedirs(self.codemodel_query_dir, exist_ok=True)
 
-            query_file = npath_join(self.codemodel_query_dir, "query.json")
-            if not os.path.exists(query_file):
-                with open(query_file, 'w') as f:
-                    json.dump({}, f)
+        query_file = npath_join(self.codemodel_query_dir, "query.json")
+        if not os.path.exists(query_file):
+            with open(query_file, 'w') as f:
+                json.dump({}, f)
 
-            args = ["cmake", "-B", str(self.build_dir), "-S", str(self.src_dir), "-GNinja"]
-            args.extend(["-DCMAKE_CXX_COMPILER=clang++", "-DCMAKE_C_COMPILER=clang"])
+        args = ["cmake", "-B", str(self.build_dir), "-S", str(self.src_dir), "-GNinja"]
+        args.extend(["-DCMAKE_CXX_COMPILER=clang++", "-DCMAKE_C_COMPILER=clang"])
 
-            if self.opts: args.extend(self.opts)
-            subprocess.run(args)
+        if self.opts: args.extend(self.opts)
+        subprocess.run(args)
 
         codemodel_file = self.find_codemodel_file()
         if not codemodel_file:
