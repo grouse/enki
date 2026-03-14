@@ -8,9 +8,9 @@ from typing import Dict, List, Optional, Any
 import ninja_syntax as ninja
 
 class Config:
-    def __init__(self, config_type: str, render: str = "vulkan"):
+    def __init__(self, config_type: str, args):
         self.type = config_type
-        self.render = render
+        self.args = args
 
     def is_debug(self) -> bool:
         return self.type in ("debug", "dev")
