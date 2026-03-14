@@ -143,6 +143,7 @@ class Target:
             flibs.append(f_lib(lib))
 
         objects : list[str] = []
+        order_deps : list[str] = []
         if self.objects:
             for obj in self.objects:
                 order_only = []
@@ -163,7 +164,10 @@ class Target:
                 for k,v in obj.variables:
                     n.variable(k, v)
 
-                objects.append(obj.out)
+                if obj.rule == "cxx" or obj.rule == "cc":
+                    objects.append(obj.out)
+                else:
+                    order_deps.append(obj.out)
 
             for d in self.deps:
                 if d.type != "exe": objects.append(d.out)
@@ -194,7 +198,6 @@ class Target:
                 flibs.append(f_lib(lib))
 
         implicit_deps : list[str] = [ npath_join("$builddir", "compile_commands.json") ]
-        order_deps : list[str] = []
 
         if self.generated:
             generated : list[str] = []
