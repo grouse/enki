@@ -11,7 +11,7 @@ rule copy_dir
   description = COPY DIR $out
 
 rule symlink
-  command = ln -s $in $out
+  command = ln -sf $in $out
   description = SYMLINK $out -> $in
 
 rule compdb
