@@ -3,7 +3,7 @@ rule touch
     description = TOUCH $out
 
 rule copy
-  command = cmd /c "for %%I in ("$in") do for %%O in ("$out") do robocopy "%%~dpI" "%%~dpO" "%%~nxI" /njh /njs /ndl /nc /ns & if errorlevel 8 (exit /b 1) else (exit /b 0)"
+  command = python $root/tools/enki/copy.py "$in" "$out"
   description = COPY $out
 
 rule copy_dir
@@ -11,7 +11,7 @@ rule copy_dir
   description = COPY DIR $out
 
 rule symlink
-  command = cmd /c "for %%I in ("$in") do for %%O in ("$out") do robocopy "%%~dpI" "%%~dpO" "%%~nxI" /njh /njs /ndl /nc /ns & if errorlevel 8 (exit /b 1) else (exit /b 0)"
+  command = python $root/tools/enki/copy.py "$in" "$out"
   description = SYMLINK $out -> $in
 
 rule compdb
