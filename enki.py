@@ -808,10 +808,13 @@ def lib(t : Target, libs : [str], public = False) -> [str]:
     if public: t.public_libs.extend(libs)
     return libs
 
-def flags(t : Target, flags : [str], public = False) -> [str]:
-    dict_merge(t._flags, flags)
-    if public: dict_merge(t.public_flags, flags)
-    return flags 
+def flags(t : Target, rule : str, opts : list[str], public = False):
+    if type(opts) is not list: return flags(t, rule, [opts], public)
+    if not rule in t._flags: t._flags[rule] = []
+    t._flags[rule].extend(opts)
+    if public: 
+        if not rule in t.public_flags: t.public_flags[rule] = []
+        t.public_flags[rule].extend(opts)
 
 def dylib(t : Target, name : str):
     t.dylibs.append(name)
