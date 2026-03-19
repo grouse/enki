@@ -8,6 +8,16 @@ rule cxx
     depfile = $out.d
     description = CC $in
 
+rule pch_cc
+    command = clang -D_DLL -MMD -MF $out.d $cflags $ccflags $flags -x c-header -Xclang -emit-pch -o $out $in
+    depfile = $out.d
+    description = PCH $in
+
+rule pch_cxx
+    command = clang++ -D_DLL -MMD -MF $out.d $cflags $cxxflags $flags -x c++-header -Xclang -emit-pch -fpch-instantiate-templates -o $out $in
+    depfile = $out.d
+    description = PCH $in
+
 rule link
     command = clang++ -Wl,-nodefaultlib:libcmt -D_DLL -lmsvcrt $linkflags -o $out $in $libs
     description = LINK $in

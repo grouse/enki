@@ -3,7 +3,7 @@ rule touch
     description = TOUCH $out
 
 rule copy
-  command = cmd /c copy /Y "$in" "$out"
+  command = python $root/tools/enki/copy_file.py "$in" "$out"
   description = COPY $out
 
 rule copy_dir
@@ -11,7 +11,7 @@ rule copy_dir
   description = COPY DIR $out
 
 rule symlink
-  command = cmd /c copy /Y "$in" "$out"
+  command = python $root/tools/enki/copy_file.py "$in" "$out"
   description = SYMLINK $out -> $in
 
 rule compdb

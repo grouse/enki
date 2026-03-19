@@ -8,6 +8,16 @@ rule cxx
   description = CXX $in
   depfile = $out.d
 
+rule pch_cc
+  command = clang -MMD -MF $out.d $cflags $ccflags $flags -x c-header -Xclang -emit-pch -o $out $in
+  description = PCH $in
+  depfile = $out.d
+
+rule pch_cxx
+  command = clang++ -MMD -MF $out.d $cflags $cxxflags $flags -x c++-header -Xclang -emit-pch -fpch-instantiate-templates -o $out $in
+  description = PCH $in
+  depfile = $out.d
+
 rule ar
   command = ar -rcs $arflags $out $in
   description = LIB $out
