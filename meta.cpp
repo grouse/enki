@@ -168,19 +168,6 @@ void append_bytes(StringBuilder *sb, const void *data, int size)
     }
 }
 
-void print_hash(XXH128_hash_t hash, const char *path)
-{
-    XXH128_canonical_t cano;
-    XXH128_canonicalFromHash(&cano, hash);
-    size_t i;
-
-    printf("%s: ", path);
-    for(i = 0; i < sizeof(cano.digest); ++i) {
-        printf("%02x", cano.digest[i]);
-    }
-    printf("\n");
-}
-
 void file_write_bytes(HashedFile *f, const void *data, int size)
 {
     append_bytes(&f->stream, data, size);
@@ -1462,27 +1449,15 @@ bool generate_header(const char *out_path, const char *src_path, CXTranslationUn
                     fread(&curr, sizeof curr, 1, s);
                 }
                 fclose(s);
-            } else {
-                FERROR("failed to open file '%s': %s\n", hsh_path, strerror(errno));
             }
 
             XXH128_hash_t hash = XXH3_128bits_digest(&f.hash);
             if (!XXH128_isEqual(hash, curr)) {
-                printf("%s: file written\n", path);
+
                 if (FILE *fp = fopen(path, "wb")) {
-                    fprintf(fp, "// ");
-
-                    XXH128_canonical_t cano;
-                    XXH128_canonicalFromHash(&cano, hash);
-                    for(size_t i = 0; i < sizeof(cano.digest); ++i) {
-                        fprintf(fp, "%02x", cano.digest[i]);
-                    }
-                    fprintf(fp, "\n\n");
-
                     for (auto *it = &f.stream.head; it; it = it->next) {
                         fwrite(it->data, 1, it->count, fp);
                     }
-
                     fclose(fp);
                 } else {
                     FERROR("failed to open file '%s': %s\n", path, strerror(errno));
@@ -1619,20 +1594,44 @@ bool generate_header(const char *out_path, const char *src_path, CXTranslationUn
         snprintf(tests_out_path, sizeof tests_out_path, "%s/tests", out_path);
         std::filesystem::create_directories(tests_out_path);
 
-        char path[4096];
+        char path[4096], hsh_path[4096];
         snprintf(path, sizeof path, "%s/%.*s.h", tests_out_path, src_name_len, src_filename);
+        snprintf(hsh_path, sizeof hsh_path, "%s/%.*s.h.hash", tests_out_path, src_name_len, src_filename);
 
         HashedFile f{};
         XXH3_INITSTATE(&f.hash);
-        XXH3_128bits_reset(&f.hash);
+        XXH3_128bits_reset_withSeed(&f.hash, META_VERSION);
 
-        defer { 
-            if (FILE *fp = fopen(path, "wb")) {
-                for (auto *it = &f.stream.head; it; it = it->next) {
-                    fwrite(it->data, 1, it->count, fp);
+        defer {
+            XXH128_hash_t curr = {};
+            if (auto *s = fopen(hsh_path, "rb"); s) {
+                fseek(s, 0, SEEK_END);
+                long size = ftell(s);
+                fseek(s, 0, SEEK_SET);
+                if (size == sizeof curr) {
+                    fread(&curr, sizeof curr, 1, s);
                 }
+                fclose(s);
+            }
 
-                fclose(fp);
+            XXH128_hash_t hash = XXH3_128bits_digest(&f.hash);
+            if (!XXH128_isEqual(hash, curr)) {
+
+                if (FILE *fp = fopen(path, "wb")) {
+                    for (auto *it = &f.stream.head; it; it = it->next) {
+                        fwrite(it->data, 1, it->count, fp);
+                    }
+                    fclose(fp);
+                } else {
+                    FERROR("failed to open file '%s': %s\n", path, strerror(errno));
+                }
+            }
+
+            if (auto *s = fopen(hsh_path, "wb"); s) {
+                fwrite(&hash, 1, sizeof hash, s);
+                fclose(s);
+            } else {
+                FERROR("failed to open file '%s': %s\n", hsh_path, strerror(errno));
             }
         };
 
@@ -1744,20 +1743,44 @@ bool generate_header(const char *out_path, const char *src_path, CXTranslationUn
         snprintf(tests_out_path, sizeof tests_out_path, "%s/tests", out_path);
         std::filesystem::create_directories(tests_out_path);
 
-        char path[4096];
+        char path[4096], hsh_path[4096];
         snprintf(path, sizeof path, "%s/%.*s.h", tests_out_path, src_name_len, src_filename);
+        snprintf(hsh_path, sizeof hsh_path, "%s/%.*s.h.hash", tests_out_path, src_name_len, src_filename);
 
         HashedFile f{};
         XXH3_INITSTATE(&f.hash);
-        XXH3_128bits_reset(&f.hash);
+        XXH3_128bits_reset_withSeed(&f.hash, META_VERSION);
 
-        defer { 
-            if (FILE *fp = fopen(path, "wb")) {
-                for (auto *it = &f.stream.head; it; it = it->next) {
-                    fwrite(it->data, 1, it->count, fp);
+        defer {
+            XXH128_hash_t curr = {};
+            if (auto *s = fopen(hsh_path, "rb"); s) {
+                fseek(s, 0, SEEK_END);
+                long size = ftell(s);
+                fseek(s, 0, SEEK_SET);
+                if (size == sizeof curr) {
+                    fread(&curr, sizeof curr, 1, s);
                 }
+                fclose(s);
+            }
 
-                fclose(fp);
+            XXH128_hash_t hash = XXH3_128bits_digest(&f.hash);
+            if (!XXH128_isEqual(hash, curr)) {
+
+                if (FILE *fp = fopen(path, "wb")) {
+                    for (auto *it = &f.stream.head; it; it = it->next) {
+                        fwrite(it->data, 1, it->count, fp);
+                    }
+                    fclose(fp);
+                } else {
+                    FERROR("failed to open file '%s': %s\n", path, strerror(errno));
+                }
+            }
+
+            if (auto *s = fopen(hsh_path, "wb"); s) {
+                fwrite(&hash, 1, sizeof hash, s);
+                fclose(s);
+            } else {
+                FERROR("failed to open file '%s': %s\n", hsh_path, strerror(errno));
             }
         };
 
