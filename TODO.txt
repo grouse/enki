@@ -1,8 +1,4 @@
 # TODO
-- [ ] [meta] avoid touching generated headers if its contents are identical to avoid recompilation of cpp files that include them
-    - might affect dependency and dirty tracking in ninja; touch a companion stamp file and depend on those instead
-    - work started in hashing branch
-- [ ] [compdb] generate for CMake sub-targets
 
 
 # DONE
@@ -15,3 +11,7 @@
 - [x] move generated header folders into target src dirs
     - each target needs to be able to just #include "gen/file" and not have things polluted by outside targets
     - I want to be able to commit the generated headers, allowing better change tracking and distribution
+- [x] [meta] avoid touching generated headers if its contents are identical to avoid recompilation of cpp files that include them
+    - might affect dependency and dirty tracking in ninja; touch a companion stamp file and depend on those instead
+    - work started in hashing branch
+- [x] [compdb] generate for CMake sub-targets
