@@ -168,6 +168,24 @@ void append_bytes(StringBuilder *sb, const void *data, int size)
     }
 }
 
+XXH128_hash_t hash_file_on_disk(const char *path)
+{
+    XXH3_state_t state;
+    XXH3_INITSTATE(&state);
+    XXH3_128bits_reset_withSeed(&state, META_VERSION);
+
+    if (FILE *fp = fopen(path, "rb"); fp) {
+        char buf[4096];
+        size_t n;
+        while ((n = fread(buf, 1, sizeof buf, fp)) > 0) {
+            XXH3_128bits_update(&state, buf, n);
+        }
+        fclose(fp);
+    }
+
+    return XXH3_128bits_digest(&state);
+}
+
 void file_write_bytes(HashedFile *f, const void *data, int size)
 {
     append_bytes(&f->stream, data, size);
@@ -1431,29 +1449,18 @@ bool generate_header(const char *out_path, const char *src_path, CXTranslationUn
 
     //if (public_proc_decls || internal_proc_decls)
     {
-        char path[4096], hsh_path[4096];
+        char path[4096];
         snprintf(path, sizeof path, "%s/%.*s.h", out_path, src_name_len, src_filename);
-        snprintf(hsh_path, sizeof hsh_path, "%s/%.*s.h.hash", out_path, src_name_len, src_filename);
 
         HashedFile f{};
         XXH3_INITSTATE(&f.hash);
         XXH3_128bits_reset_withSeed(&f.hash, META_VERSION);
 
-        defer { 
-            XXH128_hash_t curr = {};
-            if (auto *s = fopen(hsh_path, "rb"); s) {
-                fseek(s, 0, SEEK_END);
-                long size = ftell(s);
-                fseek(s, 0, SEEK_SET);
-                if (size == sizeof curr) {
-                    fread(&curr, sizeof curr, 1, s);
-                }
-                fclose(s);
-            }
-
+        defer {
             XXH128_hash_t hash = XXH3_128bits_digest(&f.hash);
-            if (!XXH128_isEqual(hash, curr)) {
+            XXH128_hash_t curr = hash_file_on_disk(path);
 
+            if (!XXH128_isEqual(hash, curr)) {
                 if (FILE *fp = fopen(path, "wb")) {
                     for (auto *it = &f.stream.head; it; it = it->next) {
                         fwrite(it->data, 1, it->count, fp);
@@ -1462,13 +1469,6 @@ bool generate_header(const char *out_path, const char *src_path, CXTranslationUn
                 } else {
                     FERROR("failed to open file '%s': %s\n", path, strerror(errno));
                 }
-            }
-
-            if (auto *s = fopen(hsh_path, "wb"); s) {
-                fwrite(&hash, 1, sizeof hash, s);
-                fclose(s);
-            } else {
-                FERROR("failed to open file '%s': %s\n", hsh_path, strerror(errno));
             }
         };
 
@@ -1594,29 +1594,18 @@ bool generate_header(const char *out_path, const char *src_path, CXTranslationUn
         snprintf(tests_out_path, sizeof tests_out_path, "%s/tests", out_path);
         std::filesystem::create_directories(tests_out_path);
 
-        char path[4096], hsh_path[4096];
+        char path[4096];
         snprintf(path, sizeof path, "%s/%.*s.h", tests_out_path, src_name_len, src_filename);
-        snprintf(hsh_path, sizeof hsh_path, "%s/%.*s.h.hash", tests_out_path, src_name_len, src_filename);
 
         HashedFile f{};
         XXH3_INITSTATE(&f.hash);
         XXH3_128bits_reset_withSeed(&f.hash, META_VERSION);
 
         defer {
-            XXH128_hash_t curr = {};
-            if (auto *s = fopen(hsh_path, "rb"); s) {
-                fseek(s, 0, SEEK_END);
-                long size = ftell(s);
-                fseek(s, 0, SEEK_SET);
-                if (size == sizeof curr) {
-                    fread(&curr, sizeof curr, 1, s);
-                }
-                fclose(s);
-            }
-
             XXH128_hash_t hash = XXH3_128bits_digest(&f.hash);
-            if (!XXH128_isEqual(hash, curr)) {
+            XXH128_hash_t curr = hash_file_on_disk(path);
 
+            if (!XXH128_isEqual(hash, curr)) {
                 if (FILE *fp = fopen(path, "wb")) {
                     for (auto *it = &f.stream.head; it; it = it->next) {
                         fwrite(it->data, 1, it->count, fp);
@@ -1625,13 +1614,6 @@ bool generate_header(const char *out_path, const char *src_path, CXTranslationUn
                 } else {
                     FERROR("failed to open file '%s': %s\n", path, strerror(errno));
                 }
-            }
-
-            if (auto *s = fopen(hsh_path, "wb"); s) {
-                fwrite(&hash, 1, sizeof hash, s);
-                fclose(s);
-            } else {
-                FERROR("failed to open file '%s': %s\n", hsh_path, strerror(errno));
             }
         };
 
@@ -1743,29 +1725,18 @@ bool generate_header(const char *out_path, const char *src_path, CXTranslationUn
         snprintf(tests_out_path, sizeof tests_out_path, "%s/tests", out_path);
         std::filesystem::create_directories(tests_out_path);
 
-        char path[4096], hsh_path[4096];
+        char path[4096];
         snprintf(path, sizeof path, "%s/%.*s.h", tests_out_path, src_name_len, src_filename);
-        snprintf(hsh_path, sizeof hsh_path, "%s/%.*s.h.hash", tests_out_path, src_name_len, src_filename);
 
         HashedFile f{};
         XXH3_INITSTATE(&f.hash);
         XXH3_128bits_reset_withSeed(&f.hash, META_VERSION);
 
         defer {
-            XXH128_hash_t curr = {};
-            if (auto *s = fopen(hsh_path, "rb"); s) {
-                fseek(s, 0, SEEK_END);
-                long size = ftell(s);
-                fseek(s, 0, SEEK_SET);
-                if (size == sizeof curr) {
-                    fread(&curr, sizeof curr, 1, s);
-                }
-                fclose(s);
-            }
-
             XXH128_hash_t hash = XXH3_128bits_digest(&f.hash);
-            if (!XXH128_isEqual(hash, curr)) {
+            XXH128_hash_t curr = hash_file_on_disk(path);
 
+            if (!XXH128_isEqual(hash, curr)) {
                 if (FILE *fp = fopen(path, "wb")) {
                     for (auto *it = &f.stream.head; it; it = it->next) {
                         fwrite(it->data, 1, it->count, fp);
@@ -1774,13 +1745,6 @@ bool generate_header(const char *out_path, const char *src_path, CXTranslationUn
                 } else {
                     FERROR("failed to open file '%s': %s\n", path, strerror(errno));
                 }
-            }
-
-            if (auto *s = fopen(hsh_path, "wb"); s) {
-                fwrite(&hash, 1, sizeof hash, s);
-                fclose(s);
-            } else {
-                FERROR("failed to open file '%s': %s\n", hsh_path, strerror(errno));
             }
         };
 
