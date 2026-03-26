@@ -1380,7 +1380,7 @@ void emit_flecs_component_members(HashedFile *f, StructDecl *decl)
             auto *base_decl = list_find(&struct_decls, field->name);
             if (!base_decl) FERROR("no base decl for field: %s", field->name);
 
-            file_writef(f, "\n\t\t.member(Ecs%s, 0, \"%s\", 1, offsetof(%s, %s))",
+            file_writef(f, "\n\t\t.member(Ecs%s, 0, \"%s\", 0, offsetof(%s, %s))",
                     field->name, field->name,
                     decl->name, base_decl->fields.head.next->name);
         } else if (clang_isArray(field->type)) {
