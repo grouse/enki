@@ -1030,13 +1030,14 @@ def generate_master_ninja(sourcedir, configs):
         f.write("build dist: phony " + " ".join(dist_targets) + "\n")
 
 
-def generate_vscode_config(sourcedir, configs, builds):
+def generate_vscode_config(sourcedir, configs, builds, debugger="lldb"):
     """Generate .vscode/tasks.json and .vscode/launch.json from build configuration.
 
     Args:
         sourcedir: Root source directory
         configs: List of configuration names (e.g., ["debug", "dev", "release"])
         builds: List of Ninja objects, one per config (same order as configs)
+        debugger: Debugger type ("lldb" or "gdb")
     """
     vscode_dir = os.path.join(sourcedir, ".vscode")
     if not os.path.exists(vscode_dir):
@@ -1094,10 +1095,11 @@ def generate_vscode_config(sourcedir, configs, builds):
     print(f"wrote {tasks_path}")
 
     # --- launch.json ---
-    debuggers = [
-        ("gdb",  "gdb",  "target"),
-        ("lldb", "lldb", "program"),
-    ]
+    debugger_info = {
+        "gdb":  ("gdb",  "gdb",  "target"),
+        "lldb": ("lldb", "lldb", "program"),
+    }
+    dbg_label, dbg_type, prog_key = debugger_info[debugger]
 
     configurations = []
 
@@ -1111,28 +1113,26 @@ def generate_vscode_config(sourcedir, configs, builds):
 
     for config_name in configs:
         for exe_name in ordered_exes:
-            for dbg_label, dbg_type, prog_key in debuggers:
-                configurations.append({
-                    "name": f"{exe_name}:{config_name} ({dbg_label})",
-                    "type": dbg_type,
-                    "request": "launch",
-                    prog_key: f"${{workspaceFolder}}/build/{config_name}/{exe_name}",
-                    "cwd": f"${{workspaceFolder}}/build/{config_name}",
-                    "preLaunchTask": f"build:{config_name}",
-                    "presentation": { "clear": True },
-                })
+            configurations.append({
+                "name": f"{exe_name}:{config_name} ({dbg_label})",
+                "type": dbg_type,
+                "request": "launch",
+                prog_key: f"${{workspaceFolder}}/build/{config_name}/{exe_name}",
+                "cwd": f"${{workspaceFolder}}/build/{config_name}",
+                "preLaunchTask": f"build:{config_name}",
+                "presentation": { "clear": True },
+            })
 
         for test_name in test_targets:
-            for dbg_label, dbg_type, prog_key in debuggers:
-                configurations.append({
-                    "name": f"{test_name}:{config_name} ({dbg_label})",
-                    "type": dbg_type,
-                    "request": "launch",
-                    prog_key: f"${{workspaceFolder}}/build/{config_name}/{test_name}",
-                    "cwd": f"${{workspaceFolder}}/build/{config_name}",
-                    "preLaunchTask": f"build:{config_name} tests",
-                    "presentation": { "clear": True },
-                })
+            configurations.append({
+                "name": f"{test_name}:{config_name} ({dbg_label})",
+                "type": dbg_type,
+                "request": "launch",
+                prog_key: f"${{workspaceFolder}}/build/{config_name}/{test_name}",
+                "cwd": f"${{workspaceFolder}}/build/{config_name}",
+                "preLaunchTask": f"build:{config_name} tests",
+                "presentation": { "clear": True },
+            })
 
     launch_json = {
         "version": "0.2.0",
