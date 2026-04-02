@@ -1028,3 +1028,119 @@ def generate_master_ninja(sourcedir, configs):
         # Dist all configs
         dist_targets = [f"{c}-dist" for c in configs]
         f.write("build dist: phony " + " ".join(dist_targets) + "\n")
+
+
+def generate_vscode_config(sourcedir, configs, builds):
+    """Generate .vscode/tasks.json and .vscode/launch.json from build configuration.
+
+    Args:
+        sourcedir: Root source directory
+        configs: List of configuration names (e.g., ["debug", "dev", "release"])
+        builds: List of Ninja objects, one per config (same order as configs)
+    """
+    vscode_dir = os.path.join(sourcedir, ".vscode")
+    if not os.path.exists(vscode_dir):
+        os.makedirs(vscode_dir)
+
+    # collect exe targets and test targets from the first build
+    # (target names are the same across configs)
+    build0 = builds[0]
+    default_name = build0.default.name if build0.default else None
+
+    exe_targets = []
+    for t in build0.targets:
+        if t.type == "exe" and t.name != "meta":
+            exe_targets.append(t.name)
+
+    test_targets = []
+    for t in build0.test_targets:
+        test_targets.append(t.name)
+
+    # --- tasks.json ---
+    tasks = []
+    for config_name in configs:
+        # build all targets
+        task = {
+            "label": f"build:{config_name}",
+            "type": "shell",
+            "command": f"ninja -C ${{workspaceFolder}}/build/{config_name}",
+            "problemMatcher": "$gcc",
+            "group": { "kind": "build" },
+        }
+        # mark the debug config as default build task
+        if config_name == "debug":
+            task["group"]["isDefault"] = True
+        tasks.append(task)
+
+        # build + run tests
+        if test_targets:
+            tasks.append({
+                "label": f"build:{config_name} tests",
+                "type": "shell",
+                "command": f"ninja -C ${{workspaceFolder}}/build/{config_name} tests/all",
+                "problemMatcher": "$gcc",
+                "group": { "kind": "test" },
+            })
+
+    tasks_json = {
+        "version": "2.0.0",
+        "tasks": tasks,
+    }
+
+    tasks_path = os.path.join(vscode_dir, "tasks.json")
+    with open(tasks_path, "w") as f:
+        json.dump(tasks_json, f, indent=4)
+        f.write("\n")
+    print(f"wrote {tasks_path}")
+
+    # --- launch.json ---
+    debuggers = [
+        ("gdb",  "gdb",  "target"),
+        ("lldb", "lldb", "program"),
+    ]
+
+    configurations = []
+
+    # order: default exe first, then other exes, then tests
+    ordered_exes = []
+    if default_name and default_name in exe_targets:
+        ordered_exes.append(default_name)
+    for name in exe_targets:
+        if name not in ordered_exes:
+            ordered_exes.append(name)
+
+    for config_name in configs:
+        for exe_name in ordered_exes:
+            for dbg_label, dbg_type, prog_key in debuggers:
+                configurations.append({
+                    "name": f"{exe_name}:{config_name} ({dbg_label})",
+                    "type": dbg_type,
+                    "request": "launch",
+                    prog_key: f"${{workspaceFolder}}/build/{config_name}/{exe_name}",
+                    "cwd": f"${{workspaceFolder}}/build/{config_name}",
+                    "preLaunchTask": f"build:{config_name}",
+                    "presentation": { "clear": True },
+                })
+
+        for test_name in test_targets:
+            for dbg_label, dbg_type, prog_key in debuggers:
+                configurations.append({
+                    "name": f"{test_name}:{config_name} ({dbg_label})",
+                    "type": dbg_type,
+                    "request": "launch",
+                    prog_key: f"${{workspaceFolder}}/build/{config_name}/{test_name}",
+                    "cwd": f"${{workspaceFolder}}/build/{config_name}",
+                    "preLaunchTask": f"build:{config_name} tests",
+                    "presentation": { "clear": True },
+                })
+
+    launch_json = {
+        "version": "0.2.0",
+        "configurations": configurations,
+    }
+
+    launch_path = os.path.join(vscode_dir, "launch.json")
+    with open(launch_path, "w") as f:
+        json.dump(launch_json, f, indent=4)
+        f.write("\n")
+    print(f"wrote {launch_path}")
