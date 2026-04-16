@@ -1399,9 +1399,15 @@ void emit_flecs_component_members(HashedFile *f, StructDecl *decl)
             CXString field_t_s = clang_getTypeSpelling(field->type);
             defer { clang_disposeString(field_t_s); };
 
-            file_writef(f, "\n\t\t.member(\"%s\", &%s::%s)",
-                    field->name,
-                    decl->name, field->name);
+            if (!strcmp(clang_getCString(field_t_s), "ecs_entity_t")) {
+                file_writef(f, "\n\t\t.member(flecs::Entity, \"%s\", 0, offsetof(%s, %s))",
+                        field->name,
+                        decl->name, field->name);
+            } else {
+                file_writef(f, "\n\t\t.member(\"%s\", &%s::%s)",
+                        field->name,
+                        decl->name, field->name);
+            }
         }
     }
 }
@@ -1894,4 +1900,3 @@ int main(int argc, char **argv)
     if (!generate_header(out_path, src_filename, tu)) return 1;
     return 0;
 }
-
