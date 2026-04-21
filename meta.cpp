@@ -1526,7 +1526,6 @@ bool generate_header(const char *out_path, const char *src_path, CXTranslationUn
             file_writef(&f, "\n#if defined(%s_GENERATED_IMPL) && !defined(%s_GENERATED_IMPL_ONCE)\n", name, name);
             file_writef(&f, "#define %s_GENERATED_IMPL_ONCE\n", name);
 
-            emit_decls(&f, flecs_tag_decls, "ECS_TAG_DECLARE(%s);");
             emit_decls(&f, flecs_enum_tag_decls, "ECS_COMPONENT_DECLARE(%s);");
             emit_decls(&f, flecs_component_decls, "ECS_COMPONENT_DECLARE(%s);");
 
