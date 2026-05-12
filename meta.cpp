@@ -477,11 +477,27 @@ Include* list_find(List<Include> *list, CXFile arg)
 }
 
 
+struct MetaArg {
+    char *name;
+    MetaArg *next;
+};
+
+struct MetaDecl {
+    char *name;
+    List<MetaArg> args;
+    MetaDecl *next;
+};
+
 struct FieldDecl {
     CXType type;
     const char *name;
     bool is_base_type;
+    List<MetaDecl> meta;
     FieldDecl *next;
+};
+
+struct FieldDeclVisitorData {
+    List<FieldDecl> *fields;
 };
 
 struct ConstantDecl {
@@ -647,6 +663,84 @@ bool clang_isArray(CXType type)
         type.kind == CXType_DependentSizedArray;
 }
 
+bool is_alpha(char c)
+{
+    return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z');
+}
+
+bool is_numeric(char c)
+{
+    return c >= '0' && c <= '9';
+}
+
+bool is_newline(char c)
+{
+    return c == '\n' || c == '\r';
+}
+
+bool is_whitespace(char c)
+{
+    return c == ' ' || c == '\t' || is_newline(c);
+}
+
+bool parse_meta_attr(List<MetaDecl> *dst, const char *text)
+{
+    const char *p = text;
+    if (strncmp(p, "meta(", 5) != 0) return false;
+    p += 5;
+
+    while (*p && *p != ')') {
+        while (is_whitespace(*p) || *p == ',') p++;
+        if (!(is_alpha(*p) || *p == '_')) return false;
+
+        const char *name = p;
+        while (is_alpha(*p) || is_numeric(*p) || *p == '_') p++;
+        MetaDecl *meta = list_push(dst, strndup(name, p-name));
+
+        while (is_whitespace(*p)) p++;
+        if (*p++ != '{') return false;
+
+        while (*p && *p != '}') {
+            while (is_whitespace(*p) || *p == ',') p++;
+            if (*p == '}') break;
+
+            const char *arg = p;
+            while (is_alpha(*p) || is_numeric(*p) || *p == '_') p++;
+            if (p == arg) return false;
+
+            list_push(&meta->args, strndup(arg, p-arg));
+        }
+
+        if (*p++ != '}') return false;
+        while (is_whitespace(*p)) p++;
+        if (*p == ',') p++;
+    }
+
+    return *p == ')';
+}
+
+CXChildVisitResult clang_pushFieldMetaAttrs(
+    CXCursor cursor,
+    CXCursor /*parent*/,
+    CXClientData client_data)
+{
+    FieldDecl *field = (FieldDecl*)client_data;
+
+    auto cursor_kind = clang_getCursorKind(cursor);
+    if (cursor_kind == CXCursor_AnnotateAttr) {
+        CXString cursor_s = clang_getCursorSpelling(cursor);
+        defer { clang_disposeString(cursor_s); };
+
+        if (strncmp(clang_getCString(cursor_s), "meta(", 5) != 0) return CXChildVisit_Continue;
+
+        if (!parse_meta_attr(&field->meta, clang_getCString(cursor_s))) {
+            ERROR(cursor, "error parsing META attribute");
+        }
+    }
+
+    return CXChildVisit_Continue;
+}
+
 CXChildVisitResult clang_getAttributes(
     CXCursor cursor,
     CXCursor /*parent*/,
@@ -683,7 +777,7 @@ CXChildVisitResult clang_pushFieldDecls(
     CXCursor /*parent*/,
     CXClientData client_data)
 {
-    List<FieldDecl> *dst = (List<FieldDecl>*)client_data;
+    FieldDeclVisitorData *data = (FieldDeclVisitorData*)client_data;
 
     auto cursor_kind = clang_getCursorKind(cursor);
     if (cursor_kind == CXCursor_FieldDecl) {
@@ -691,13 +785,14 @@ CXChildVisitResult clang_pushFieldDecls(
         defer { clang_disposeString(field_s); };
 
         CXType type = clang_getCursorType(cursor);
-        list_push(dst, type, strdup(clang_getCString(field_s)));
+        FieldDecl *field = list_push(data->fields, type, strdup(clang_getCString(field_s)));
+        clang_visitChildren(cursor, clang_pushFieldMetaAttrs, field);
     } else if (cursor_kind == CXCursor_UnionDecl) {
         clang_visitChildren(
             cursor,
             [](CXCursor cursor, CXCursor /*parent*/, CXClientData client_data) -> CXChildVisitResult
             {
-                List<FieldDecl> *dst = (List<FieldDecl>*)client_data;
+                FieldDeclVisitorData *data = (FieldDeclVisitorData*)client_data;
 
                 auto cursor_kind = clang_getCursorKind(cursor);
                 if (cursor_kind == CXCursor_FieldDecl) {
@@ -705,7 +800,8 @@ CXChildVisitResult clang_pushFieldDecls(
                     defer { clang_disposeString(field_s); };
 
                     CXType type = clang_getCursorType(cursor);
-                    list_push(dst, type, strdup(clang_getCString(field_s)));
+                    FieldDecl *field = list_push(data->fields, type, strdup(clang_getCString(field_s)));
+                    clang_visitChildren(cursor, clang_pushFieldMetaAttrs, field);
                     return CXChildVisit_Break;
                 } else if (cursor_kind == CXCursor_StructDecl) {
                     clang_visitChildren(cursor, clang_pushFieldDecls, client_data);
@@ -720,7 +816,7 @@ CXChildVisitResult clang_pushFieldDecls(
         CXString type_s = clang_getTypeSpelling(type);
         defer { clang_disposeString(type_s); };
 
-        list_push(dst, type, strdup(clang_getCString(type_s)), true);
+        list_push(data->fields, type, strdup(clang_getCString(type_s)), true);
 
         auto *struct_decl = list_find(&struct_decls, clang_getCString(type_s));
         if (struct_decl == nullptr) {
@@ -1261,7 +1357,8 @@ CXChildVisitResult clang_visitor(
         defer { clang_disposeString(type_s); };
 
         auto *decl = list_push(&struct_decls, strdup(clang_getCString(type_s)));
-        clang_visitChildren(cursor, clang_pushFieldDecls, &decl->fields);
+        FieldDeclVisitorData field_data{ .fields = &decl->fields };
+        clang_visitChildren(cursor, clang_pushFieldDecls, &field_data);
     } else if (cursor_kind == CXCursor_EnumDecl) {
         CXType type = clang_getCursorType(cursor);
         CXString type_s = clang_getTypeSpelling(type);
@@ -1412,6 +1509,84 @@ void emit_flecs_component_members(HashedFile *f, StructDecl *decl)
     }
 }
 
+bool is_flecs_meta(MetaDecl *meta)
+{
+    return strcmp(meta->name, "EcsRequiredId") == 0;
+}
+
+bool has_flecs_meta(FieldDecl *field)
+{
+    for (auto meta : field->meta) {
+        if (is_flecs_meta(meta)) return true;
+    }
+
+    return false;
+}
+
+bool has_flecs_meta(StructDecl *decl)
+{
+    for (auto field : decl->fields) {
+        if (has_flecs_meta(field)) return true;
+    }
+
+    return false;
+}
+
+bool has_flecs_meta()
+{
+    for (auto decl : flecs_component_decls) {
+        if (auto *struct_decl = list_find(&struct_decls, decl->name);
+            struct_decl && has_flecs_meta(struct_decl))
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+void emit_ecs_name(HashedFile *f, const char *name)
+{
+    if (name[0] == 'E' && name[1] == 'c' && name[2] == 's') file_writef(f, "%s", name);
+    else file_writef(f, "Ecs%s", name);
+}
+
+void emit_flecs_meta(HashedFile *f, StructDecl *decl)
+{
+    for (auto field : decl->fields) {
+        if (!has_flecs_meta(field)) continue;
+
+        CXString field_t_s = clang_getTypeSpelling(field->type);
+        defer { clang_disposeString(field_t_s); };
+
+        if (strcmp(clang_getCString(field_t_s), "ecs_entity_t") != 0) {
+            FERROR("EcsRequiredId metadata is only supported on ecs_entity_t fields: %s.%s", decl->name, field->name);
+        }
+
+        file_writef(f, "\t{\n");
+        file_writef(f, "\t\tecs_entity_t member = ecs_entity(ecs, {\n");
+        file_writef(f, "\t\t\t.name = \"%s\",\n", field->name);
+        file_writef(f, "\t\t\t.parent = Ecs%s,\n", decl->name);
+        file_writef(f, "\t\t});\n");
+        file_writef(f, "\t\tecs_set(ecs, member, EcsMember{\n");
+        file_writef(f, "\t\t\t.type = flecs::Entity,\n");
+        file_writef(f, "\t\t\t.offset = offsetof(%s, %s),\n", decl->name, field->name);
+        file_writef(f, "\t\t});\n");
+
+        for (auto meta : field->meta) {
+            if (!is_flecs_meta(meta)) continue;
+
+            for (auto arg : meta->args) {
+                file_writef(f, "\t\tecs_add_pair(ecs, member, EcsRequiredId, ");
+                emit_ecs_name(f, arg->name);
+                file_writef(f, ");\n");
+            }
+        }
+
+        file_writef(f, "\t}\n");
+    }
+}
+
 bool generate_header(const char *out_path, const char *src_path, CXTranslationUnit tu)
 {
     CXCursor cursor = clang_getTranslationUnitCursor(tu);
@@ -1450,6 +1625,7 @@ bool generate_header(const char *out_path, const char *src_path, CXTranslationUn
     bool generate_tests = test_proc_decls;
     bool generate_integration_tests = integration_test_proc_decls;
     bool generate_flecs = flecs_component_decls || flecs_tag_decls || flecs_enum_tag_decls;
+    bool generate_flecs_meta = has_flecs_meta();
 
     std::filesystem::create_directories(out_path);
 
@@ -1487,6 +1663,10 @@ bool generate_header(const char *out_path, const char *src_path, CXTranslationUn
 
             if (generate_flecs) {
                 file_writef(&f, "\nextern void flecs_register_%.*s(flecs::world &ecs);\n", src_name_len, src_filename);
+
+                if (generate_flecs_meta) {
+                    file_writef(&f, "extern void flecs_register_%.*s_meta(flecs::world &ecs);\n", src_name_len, src_filename);
+                }
 
                 emit_decls(&f, flecs_tag_decls, "extern ECS_TAG_DECLARE(%s);");
                 emit_decls(&f, flecs_enum_tag_decls, "extern ECS_COMPONENT_DECLARE(%s);");
@@ -1589,6 +1769,20 @@ bool generate_header(const char *out_path, const char *src_path, CXTranslationUn
                 if (decl->next) file_write(&f, "\n");
             }
             file_write(&f, "}\n");
+
+            if (generate_flecs_meta) {
+                file_writef(&f, "\nvoid flecs_register_%.*s_meta(flecs::world &ecs)\n{\n", src_name_len, src_filename);
+
+                for (auto decl : flecs_component_decls) {
+                    if (auto *struct_decl = list_find(&struct_decls, decl->name);
+                        struct_decl && has_flecs_meta(struct_decl))
+                    {
+                        emit_flecs_meta(&f, struct_decl);
+                    }
+                }
+
+                file_write(&f, "}\n");
+            }
 
             file_writef(&f, "\n#endif // %s_GENERATED_IMPL\n", name);
         }
