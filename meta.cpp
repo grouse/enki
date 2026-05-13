@@ -695,7 +695,13 @@ bool parse_meta_attr(List<MetaDecl> *dst, const char *text)
 
         const char *name = p;
         while (is_alpha(*p) || is_numeric(*p) || *p == '_') p++;
-        MetaDecl *meta = list_push(dst, strndup(name, p-name));
+        size_t name_len = (size_t)(p-name);
+        char *name_sz = (char*)malloc(name_len+1);
+        if (!name_sz) FERROR("out of memory");
+        memcpy(name_sz, name, name_len);
+        name_sz[name_len] = '\0';
+
+        MetaDecl *meta = list_push(dst, name_sz);
 
         while (is_whitespace(*p)) p++;
         if (*p++ != '{') return false;
@@ -708,7 +714,13 @@ bool parse_meta_attr(List<MetaDecl> *dst, const char *text)
             while (is_alpha(*p) || is_numeric(*p) || *p == '_') p++;
             if (p == arg) return false;
 
-            list_push(&meta->args, strndup(arg, p-arg));
+            size_t arg_len = (size_t)(p-arg);
+            char *arg_sz = (char*)malloc(arg_len+1);
+            if (!arg_sz) FERROR("out of memory");
+            memcpy(arg_sz, arg, arg_len);
+            arg_sz[arg_len] = '\0';
+
+            list_push(&meta->args, arg_sz);
         }
 
         if (*p++ != '}') return false;
