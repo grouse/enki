@@ -72,6 +72,7 @@ class Target:
         self.public_deps = []
         self.generated   = []
         self.objects     = []
+        self.compdb_aliases = []
         self.pch_headers = []       # target-wide pch headers (accumulated)
         self.pch_groups  = []       # object-specific pch groups
         self.variables : dict[str, str] = dict()
@@ -654,9 +655,29 @@ class Ninja:
                 writer.variable("dir", npath_join("$builddir", cmake.name), 1)
 
         # compile commands database
+        compdb_implicit_deps = [npath_join("$builddir", "build.ninja")]
+        for t in self.targets:
+            compdb_implicit_deps.append(npath_join("$builddir", t.name + ".ninja"))
+        for t in self.test_targets:
+            compdb_implicit_deps.append(npath_join("$builddir", t.name + ".ninja"))
+
+        compdb_aliases = []
+        for t in self.targets + self.test_targets:
+            for alias in t.compdb_aliases:
+                compdb_aliases.append({
+                    "from": resolve_variables(src(alias["from"], t.src_dir), self.variables),
+                    "to": resolve_variables(src(alias["to"], t.src_dir), self.variables),
+                })
+
+        compdb_aliases_path = npath_join(self.build_dir, "compile_commands.aliases.json")
+        with open(compdb_aliases_path, "w") as f:
+            json.dump({"aliases": compdb_aliases}, f, indent=2)
+            f.write("\n")
+
         compdb_targets : list[str] = []
-        writer.build(npath_join("$builddir", "compile_commands.main.json"), "compdb")
+        writer.build(npath_join("$builddir", "compile_commands.main.json"), "compdb", implicit = compdb_implicit_deps)
         compdb_targets.append("$builddir/compile_commands.main.json")
+        compdb_targets.append("$builddir/compile_commands.aliases.json")
 
         for t in self.cmakes: 
             writer.build("$builddir/%s/compile_commands.json" % t.name, "compdb_subninja")
@@ -940,6 +961,12 @@ def flags(t : Target, rule : str, opts : list[str], public = False):
     if public: 
         if not rule in t.public_flags: t.public_flags[rule] = []
         t.public_flags[rule].extend(opts)
+
+def compdb_alias(t : Target, source : str, aliases : list[str]):
+    if type(aliases) is not list: return compdb_alias(t, source, [aliases])
+
+    for alias in aliases:
+        t.compdb_aliases.append({ "from": source, "to": alias })
 
 def dylib(t : Target, name : str):
     t.dylibs.append(name)
