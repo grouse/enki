@@ -114,16 +114,17 @@ class Target:
         for dep in deps: deps.extend(dep.public_deps)
 
         t_flags = dict()
-        for k, v in self._flags.items():
-            if not v: continue
+        flag_keys = set(parent._flags.keys()) | set(self._flags.keys())
+        for d in deps:
+            flag_keys.update(d.public_flags.keys())
 
+        for k in flag_keys:
             t_flags[k] = []
             if k in parent._flags: t_flags[k].extend(parent._flags[k])
-            t_flags[k].extend(v)
+            if k in self._flags: t_flags[k].extend(self._flags[k])
 
         for d in deps:
             for k, v in d.public_flags.items():
-                if k not in t_flags: t_flags[k] = []
                 t_flags[k].extend(v)
 
         for k, v in t_flags.items(): vars(n, k+"flags", v)
@@ -734,7 +735,7 @@ class Ninja:
         writer.comment("dist targets")
         
         # Whether to include PDB debug symbols in dist
-        has_pdb = self.target_os == "win32" and self.config_type in ("debug", "dev")
+        has_pdb = self.target_os == "win32"
 
         # Collect all targets in the default target's dependency tree
         def collect_dist_targets(target, visited=None):
@@ -750,11 +751,12 @@ class Ninja:
                 writer.build(dist_out, "copy", target.out)
                 dist_targets.append(dist_out)
 
-                # Copy PDB debug symbols for Windows debug/dev builds
+                # Copy PDB debug symbols for Windows builds
                 if has_pdb:
                     pdb_name = os.path.splitext(os.path.basename(target.out))[0] + ".pdb"
                     pdb_src = npath_join("$builddir", pdb_name)
                     pdb_out = npath_join("$builddir", "dist", pdb_name)
+                    writer.build(pdb_src, "phony", target.out)
                     writer.build(pdb_out, "copy", pdb_src)
                     dist_targets.append(pdb_out)
             
