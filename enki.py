@@ -1064,7 +1064,7 @@ def generate_vscode_config(sourcedir, configs, builds, debugger="lldb"):
         sourcedir: Root source directory
         configs: List of configuration names (e.g., ["debug", "dev", "release"])
         builds: List of Ninja objects, one per config (same order as configs)
-        debugger: Debugger type ("lldb" or "gdb")
+        debugger: Debugger type ("lldb", "gdb", "cppdbg", or "cppvsdbg")
     """
     vscode_dir = os.path.join(sourcedir, ".vscode")
     if not os.path.exists(vscode_dir):
@@ -1076,13 +1076,16 @@ def generate_vscode_config(sourcedir, configs, builds, debugger="lldb"):
     default_name = build0.default.name if build0.default else None
 
     exe_targets = []
+    target_exts = {}
     for t in build0.targets:
         if t.type == "exe" and t.name != "meta":
             exe_targets.append(t.name)
+            target_exts[t.name] = t.ext
 
     test_targets = []
     for t in build0.test_targets:
         test_targets.append(t.name)
+        target_exts[t.name] = t.ext
 
     # --- tasks.json ---
     tasks = []
@@ -1123,10 +1126,23 @@ def generate_vscode_config(sourcedir, configs, builds, debugger="lldb"):
 
     # --- launch.json ---
     debugger_info = {
-        "gdb":  ("gdb",  "gdb",  "target"),
-        "lldb": ("lldb", "lldb", "program"),
+        "gdb":    ("gdb",    "gdb",    "target",  None),
+        "lldb":   ("lldb",   "lldb",   "program", None),
+        "cppdbg": ("cppdbg", "cppdbg", "program", {
+            "MIMode": "gdb",
+            "args": [],
+            "stopAtEntry": False,
+            "environment": [],
+            "externalConsole": False,
+        }),
+        "cppvsdbg": ("cppvsdbg", "cppvsdbg", "program", {
+            "args": [],
+            "stopAtEntry": False,
+            "environment": [],
+            "externalConsole": False,
+        }),
     }
-    dbg_label, dbg_type, prog_key = debugger_info[debugger]
+    dbg_label, dbg_type, prog_key, extra_launch = debugger_info[debugger]
 
     configurations = []
 
@@ -1140,26 +1156,34 @@ def generate_vscode_config(sourcedir, configs, builds, debugger="lldb"):
 
     for config_name in configs:
         for exe_name in ordered_exes:
-            configurations.append({
+            program = f"${{workspaceFolder}}/build/{config_name}/{exe_name}{target_exts.get(exe_name, '')}"
+            launch_config = {
                 "name": f"{exe_name}:{config_name} ({dbg_label})",
                 "type": dbg_type,
                 "request": "launch",
-                prog_key: f"${{workspaceFolder}}/build/{config_name}/{exe_name}",
+                prog_key: program,
                 "cwd": f"${{workspaceFolder}}/build/{config_name}",
                 "preLaunchTask": f"build:{config_name}",
                 "presentation": { "clear": True },
-            })
+            }
+            if extra_launch:
+                launch_config.update(extra_launch)
+            configurations.append(launch_config)
 
         for test_name in test_targets:
-            configurations.append({
+            program = f"${{workspaceFolder}}/build/{config_name}/{test_name}{target_exts.get(test_name, '')}"
+            launch_config = {
                 "name": f"{test_name}:{config_name} ({dbg_label})",
                 "type": dbg_type,
                 "request": "launch",
-                prog_key: f"${{workspaceFolder}}/build/{config_name}/{test_name}",
+                prog_key: program,
                 "cwd": f"${{workspaceFolder}}/build/{config_name}",
                 "preLaunchTask": f"build:{config_name} tests",
                 "presentation": { "clear": True },
-            })
+            }
+            if extra_launch:
+                launch_config.update(extra_launch)
+            configurations.append(launch_config)
 
     launch_json = {
         "version": "0.2.0",
