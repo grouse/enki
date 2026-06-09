@@ -17,7 +17,13 @@
 
 #if defined(_WIN32)
 #define NOTHROW
-#define CRTIMP __declspec(dllimport)
+#ifndef CRTIMP
+#  if defined(_DLL) && !defined(_STATIC_CPPLIB)
+#    define CRTIMP __declspec(dllimport)
+#  else
+#    define CRTIMP
+#  endif
+#endif
 
 #undef strdup
 #define strdup _strdup
