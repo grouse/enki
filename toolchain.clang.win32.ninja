@@ -1,25 +1,25 @@
 rule cc
-    command = clang -D_DLL -MMD -MF $out.d $cflags $ccflags $flags -c $in -o $out
+    command = clang -D_MT -Xclang --dependent-lib=libcmt -MMD -MF $out.d $cflags $ccflags $flags -c $in -o $out
     depfile = $out.d
     description = CC $in
 
 rule cxx
-    command = clang++ -D_DLL -MMD -MF $out.d $cflags $cxxflags -c $in -o $out
+    command = clang++ -D_MT -Xclang --dependent-lib=libcmt -Xclang --dependent-lib=libcpmt -MMD -MF $out.d $cflags $cxxflags $flags -c $in -o $out
     depfile = $out.d
-    description = CC $in
+    description = CXX $in
 
 rule pch_cc
-    command = clang -D_DLL -MMD -MF $out.d $cflags $ccflags $flags -x c-header -Xclang -emit-pch -o $out $in
+    command = clang -D_MT -Xclang --dependent-lib=libcmt -MMD -MF $out.d $cflags $ccflags $flags -x c-header -Xclang -emit-pch -o $out $in
     depfile = $out.d
     description = PCH $in
 
 rule pch_cxx
-    command = clang++ -D_DLL -MMD -MF $out.d $cflags $cxxflags $flags -x c++-header -Xclang -emit-pch -fpch-instantiate-templates -o $out $in
+    command = clang++ -D_MT -Xclang --dependent-lib=libcmt -Xclang --dependent-lib=libcpmt -MMD -MF $out.d $cflags $cxxflags $flags -x c++-header -Xclang -emit-pch -fpch-instantiate-templates -o $out $in
     depfile = $out.d
     description = PCH $in
 
 rule link
-    command = clang++ -Wl,-nodefaultlib:libcmt -D_DLL -lmsvcrt $linkflags -o $out $in $libs
+    command = clang++ -Wl,-nodefaultlib:msvcrt -D_MT $linkflags -o $out $in $libs
     description = LINK $in
 
 rule ar
