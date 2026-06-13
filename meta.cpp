@@ -1378,9 +1378,12 @@ CXChildVisitResult clang_visitor(
         FieldDeclVisitorData field_data{ .fields = &decl->fields };
         clang_visitChildren(cursor, clang_pushFieldDecls, &field_data);
     } else if (cursor_kind == CXCursor_EnumDecl) {
+        if (!clang_isCursorDefinition(cursor)) return CXChildVisit_Continue;
+
         CXType type = clang_getCursorType(cursor);
         CXString type_s = clang_getTypeSpelling(type);
         defer { clang_disposeString(type_s); };
+
 
         CXType underlying = clang_getEnumDeclIntegerType(cursor);
         auto *decl = list_push(&enum_decls, strdup(clang_getCString(type_s)), underlying);
@@ -1753,6 +1756,7 @@ bool generate_header(const char *out_path, const char *src_path, CXTranslationUn
 
                 auto *enum_decl = list_find(&enum_decls, decl->name);
                 if (!enum_decl) ERROR(cursor, "no enum decl for tag: %s", decl->name);
+                if (enum_decl->constants.count == 0) ERROR(cursor, "enum tag has no constants: %s", decl->name);
 
                 for (auto constant : enum_decl->constants) {
                     file_writef(&f, "\t{\tecs_entity_desc_t desc = { .name = \"%s\" };\n", constant->name);
