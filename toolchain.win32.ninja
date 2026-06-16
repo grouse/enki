@@ -30,3 +30,7 @@ rule meta
   command = $builddir/meta.exe $metaflags --depfile $out.d $in -o $out -- $cflags
   description = META $in
   restat = 1
+
+rule rc
+  command = llvm-rc /nologo $flags /fo $out $in
+  description = RC $in

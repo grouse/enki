@@ -272,7 +272,7 @@ class Target:
                 for k,v in obj.variables:
                     n.variable(k, v)
 
-                if obj.rule == "cxx" or obj.rule == "cc":
+                if obj.rule == "cxx" or obj.rule == "cc" or obj.rule == "rc":
                     objects.append(obj.out)
                 else:
                     order_deps.append(obj.out)
@@ -926,6 +926,23 @@ def cc(t : Target, sources : list[str], deps : list[str] = None, flags : list[st
         out = npath_join("$objdir", normpath(source_name+".o"))
 
         o = Object("cc", source, out)
+        if deps:  o.deps.extend(deps)
+        if flags: o.flags.extend(flags)
+        objs.append(o)
+
+    t.objects.extend(objs)
+    return objs
+
+def rc(t : Target, sources : list[str], deps : list[str] = None, flags : list[str] = None) -> list[Object]:
+    if type(sources) is not list: return rc(t, [sources], deps, flags)
+
+    objs : list[Object] = []
+    for source in sources:
+        source_name = os.path.splitext(source)[0]
+        if source_name.startswith("$"): source_name = os.path.basename(source)
+        out = npath_join("$objdir", normpath(source_name+".res"))
+
+        o = Object("rc", source, out)
         if deps:  o.deps.extend(deps)
         if flags: o.flags.extend(flags)
         objs.append(o)
