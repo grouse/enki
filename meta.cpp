@@ -221,7 +221,7 @@ void file_writef(HashedFile *f, const char *fmt, ...)
     if (length >= sizeof buffer) {
         FERROR("buffer overflow");
         return;
-    } 
+    }
 
     file_write_bytes(f, buffer, length);
 }
@@ -710,26 +710,28 @@ bool parse_meta_attr(List<MetaDecl> *dst, const char *text)
         MetaDecl *meta = list_push(dst, name_sz);
 
         while (is_whitespace(*p)) p++;
-        if (*p++ != '{') return false;
 
-        while (*p && *p != '}') {
-            while (is_whitespace(*p) || *p == ',') p++;
-            if (*p == '}') break;
+        if (*p == '{' && *p++) {
+            while (*p && *p != '}') {
+                while (is_whitespace(*p) || *p == ',') p++;
+                if (*p == '}') break;
 
-            const char *arg = p;
-            while (is_alpha(*p) || is_numeric(*p) || *p == '_') p++;
-            if (p == arg) return false;
+                const char *arg = p;
+                while (is_alpha(*p) || is_numeric(*p) || *p == '_') p++;
+                if (p == arg) return false;
 
-            size_t arg_len = (size_t)(p-arg);
-            char *arg_sz = (char*)malloc(arg_len+1);
-            if (!arg_sz) FERROR("out of memory");
-            memcpy(arg_sz, arg, arg_len);
-            arg_sz[arg_len] = '\0';
+                size_t arg_len = (size_t)(p-arg);
+                char *arg_sz = (char*)malloc(arg_len+1);
+                if (!arg_sz) FERROR("out of memory");
+                memcpy(arg_sz, arg, arg_len);
+                arg_sz[arg_len] = '\0';
 
-            list_push(&meta->args, arg_sz);
+                list_push(&meta->args, arg_sz);
+            }
+
+            if (*p++ != '}') return false;
         }
 
-        if (*p++ != '}') return false;
         while (is_whitespace(*p)) p++;
         if (*p == ',') p++;
     }
@@ -1091,7 +1093,7 @@ bool parse_decl_macro(List<T> *decls, CXTranslationUnit tu, CXCursor cursor)
 
     CXString decl_s = clang_getTokenSpelling(stream.tu, *stream.at);
     defer { clang_disposeString(decl_s); };
-    
+
     T *decl = list_push(decls, strdup(clang_getCString(decl_s)));
 
     CXToken t;
@@ -1530,15 +1532,10 @@ void emit_flecs_component_members(HashedFile *f, StructDecl *decl)
     }
 }
 
-bool is_flecs_meta(MetaDecl *meta)
-{
-    return strcmp(meta->name, "EcsRequiredId") == 0;
-}
-
 bool has_flecs_meta(FieldDecl *field)
 {
     for (auto meta : field->meta) {
-        if (is_flecs_meta(meta)) return true;
+        if (strcmp(meta->name, "EcsRequiredId") == 0) return true;
     }
 
     return false;
@@ -1580,26 +1577,20 @@ void emit_flecs_meta(HashedFile *f, StructDecl *decl)
         CXString field_t_s = clang_getTypeSpelling(field->type);
         defer { clang_disposeString(field_t_s); };
 
-        if (strcmp(clang_getCString(field_t_s), "ecs_entity_t") != 0) {
-            FERROR("EcsRequiredId metadata is only supported on ecs_entity_t fields: %s.%s", decl->name, field->name);
-        }
-
         file_writef(f, "\t{\n");
-        file_writef(f, "\t\tecs_entity_t member = ecs_entity(ecs, {\n");
+        file_writef(f, "\t\tecs_entity_t member = ecs_lookup_child(ecs, Ecs%s, \"%s\");\n", decl->name, field->name);
+        file_writef(f, "\t\tif (!member) member = ecs_entity(ecs, {\n");
         file_writef(f, "\t\t\t.name = \"%s\",\n", field->name);
         file_writef(f, "\t\t\t.parent = Ecs%s,\n", decl->name);
         file_writef(f, "\t\t});\n");
-        file_writef(f, "\t\tecs_set(ecs, member, EcsMember{\n");
-        file_writef(f, "\t\t\t.type = flecs::Entity,\n");
-        file_writef(f, "\t\t\t.offset = offsetof(%s, %s),\n", decl->name, field->name);
-        file_writef(f, "\t\t});\n");
 
         for (auto meta : field->meta) {
-            if (!is_flecs_meta(meta)) continue;
-
-            for (auto arg : meta->args) {
-                file_writef(f, "\t\tecs_add_pair(ecs, member, EcsRequiredId, ");
-                emit_ecs_name(f, arg->name);
+            if (strcmp(meta->name, "EcsRequiredId") == 0) {
+                for (auto arg : meta->args) {
+                    file_writef(f, "\t\tecs_add_pair(ecs, member, EcsRequiredId, ");
+                    emit_ecs_name(f, arg->name);
+                    file_writef(f, ");\n");
+                }
                 file_writef(f, ");\n");
             }
         }
@@ -1919,7 +1910,7 @@ bool generate_header(const char *out_path, const char *src_path, CXTranslationUn
                 file_write(&f, "\"");
 
                 file_writef(
-                    &f, 
+                    &f,
                     ", nullptr, %s__%s__tests, sizeof(%s__%s__tests)/sizeof(%s__%s__tests[0]) },\n",
                     name, category,
                     name, category,
@@ -1939,7 +1930,7 @@ bool generate_header(const char *out_path, const char *src_path, CXTranslationUn
             }
         }
         file_write(&f, "};\n");
-    } 
+    }
 
     if (generate_integration_tests) {
         char tests_out_path[4096];
@@ -1991,13 +1982,13 @@ bool generate_header(const char *out_path, const char *src_path, CXTranslationUn
         XXH3_INITSTATE(&f.hash);
         XXH3_128bits_reset(&f.hash);
 
-        defer { 
+        defer {
             if (FILE *fp = fopen(path, "wb")) {
                 for (auto *it = &f.stream.head; it; it = it->next) {
                     fwrite(it->data, 1, it->count, fp);
                 }
 
-                fclose(fp); 
+                fclose(fp);
             } else {
                 FERROR("failed to open out.file '%s': %s\n", path, strerror(errno));
             }
