@@ -1536,6 +1536,7 @@ bool has_flecs_meta(FieldDecl *field)
 {
     for (auto meta : field->meta) {
         if (strcmp(meta->name, "EcsRequiredId") == 0) return true;
+        if (strcmp(meta->name, "ColorRgb") == 0) return true;
     }
 
     return false;
@@ -1591,6 +1592,9 @@ void emit_flecs_meta(HashedFile *f, StructDecl *decl)
                     emit_ecs_name(f, arg->name);
                     file_writef(f, ");\n");
                 }
+            } else if (strcmp(meta->name, "ColorRgb") == 0) {
+                file_writef(f, "\t\tecs_add_id(ecs, member, ");
+                emit_ecs_name(f, meta->name);
                 file_writef(f, ");\n");
             }
         }
