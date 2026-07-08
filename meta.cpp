@@ -1641,7 +1641,7 @@ bool generate_header(const char *out_path, const char *src_path, CXTranslationUn
     bool generate_tests = test_proc_decls;
     bool generate_integration_tests = integration_test_proc_decls;
     bool generate_flecs = flecs_component_decls || flecs_tag_decls || flecs_enum_tag_decls;
-    bool generate_flecs_meta = has_flecs_meta();
+    bool generate_flecs_meta = flecs_component_decls || has_flecs_meta();
 
     std::filesystem::create_directories(out_path);
 
@@ -1769,14 +1769,6 @@ bool generate_header(const char *out_path, const char *src_path, CXTranslationUn
                 file_writef(&f, "\tECS_COMPONENT_DEFINE(ecs, %s);\n", decl->name);
                 file_writef(&f, "\tecs.component<%s>()", decl->name);
 
-                if (auto *struct_decl = list_find(&struct_decls, decl->name);
-                    struct_decl)
-                {
-                    emit_flecs_component_members(&f, struct_decl);
-                } else {
-                    ERROR(cursor, "no struct or enum decl for component: %s", decl->name);
-                }
-
                 for (auto arg : decl->args) {
                     if (arg->second) file_writef(&f, "\n\t\t.add(ecs_pair(%s, %s))", arg->name, arg->second);
                     else file_writef(&f, "\n\t\t.add(%s)", arg->name);
@@ -1789,6 +1781,18 @@ bool generate_header(const char *out_path, const char *src_path, CXTranslationUn
 
             if (generate_flecs_meta) {
                 file_writef(&f, "\nvoid flecs_register_%.*s_meta(flecs::world &ecs)\n{\n", src_name_len, src_filename);
+
+                for (auto decl : flecs_component_decls) {
+                    auto *struct_decl = list_find(&struct_decls, decl->name);
+                    if (!struct_decl) ERROR(cursor, "no struct or enum decl for component: %s", decl->name);
+
+                    file_writef(&f, "\tecs.component<%s>()", decl->name);
+                    emit_flecs_component_members(&f, struct_decl);
+                    file_write(&f, ";\n");
+                    if (decl->next) file_write(&f, "\n");
+                }
+
+                if (flecs_component_decls && has_flecs_meta()) file_write(&f, "\n");
 
                 for (auto decl : flecs_component_decls) {
                     if (auto *struct_decl = list_find(&struct_decls, decl->name);
