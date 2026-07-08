@@ -575,6 +575,15 @@ struct EnumTagDecl{
     bool operator==(const char *rhs) { return name && rhs && strcmp(name, rhs) == 0; }
 };
 
+struct ModuleDecl {
+    char *name;
+    List<ComponentArg> args;
+
+    ModuleDecl *next;
+
+    bool operator==(const char *rhs) { return name && rhs && strcmp(name, rhs) == 0; }
+};
+
 List<Include> includes;
 
 // TODO(jesper): at least the struct decls really ought to be a hashmap at this point because it'll contain every structure in the translation unit, regardless of whether or not we need the type info, because we can't really back-track if we determine we need it
@@ -589,6 +598,7 @@ List<ProcDecl> integration_test_proc_decls{};
 List<ComponentDecl> flecs_component_decls{};
 List<TagDecl> flecs_tag_decls{};
 List<EnumTagDecl> flecs_enum_tag_decls{};
+List<ModuleDecl> flecs_module_decls{};
 
 bool clang_String_isNull(CXString string)
 {
@@ -1408,6 +1418,9 @@ CXChildVisitResult clang_visitor(
         } else if (strcmp(macro_sz, "ECS_TAG") == 0) {
             if (!parse_decl_macro(&flecs_tag_decls, tu, cursor))
                 ERROR(cursor, "error parsing tag decl");
+        } else if (strcmp(macro_sz, "ECS_MODULE_DECLARE") == 0) {
+            if (!parse_decl_macro(&flecs_module_decls, tu, cursor))
+                ERROR(cursor, "error parsing module decl");
         }
     } else if (cursor_kind == CXCursor_InclusionDirective) {
         CXFile file = clang_getIncludedFile(cursor);
@@ -1643,6 +1656,10 @@ bool generate_header(const char *out_path, const char *src_path, CXTranslationUn
     bool generate_flecs = flecs_component_decls || flecs_tag_decls || flecs_enum_tag_decls;
     bool generate_flecs_meta = flecs_component_decls || has_flecs_meta();
 
+    if (flecs_component_decls && !flecs_module_decls) {
+        ERROR(cursor, "flecs components require ECS_MODULE_DECLARE");
+    }
+
     std::filesystem::create_directories(out_path);
 
     //if (public_proc_decls || internal_proc_decls)
@@ -1726,6 +1743,11 @@ bool generate_header(const char *out_path, const char *src_path, CXTranslationUn
             emit_decls(&f, flecs_component_decls, "ECS_COMPONENT_DECLARE(%s);");
 
             file_writef(&f, "\nvoid flecs_register_%.*s(flecs::world &ecs)\n{\n", src_name_len, src_filename);
+            if (flecs_module_decls) {
+                file_writef(&f, "\textern ECS_COMPONENT_DECLARE(%s);\n", flecs_module_decls.head.next->name);
+                file_writef(&f, "\tecs_entity_t prev_scope = ecs_set_scope(ecs, ecs_id(%s));\n\n", flecs_module_decls.head.next->name);
+            }
+
             for (auto decl : flecs_tag_decls) {
                 file_writef(&f, "\tECS_TAG_DEFINE(ecs, %s);\n", decl->name);
                 file_writef(&f, "\tecs_add_id(ecs, ecs_id(%s), EcsPairIsTag);\n", decl->name);
@@ -1777,10 +1799,15 @@ bool generate_header(const char *out_path, const char *src_path, CXTranslationUn
                 file_write(&f, ";\n");
                 if (decl->next) file_write(&f, "\n");
             }
+            if (flecs_module_decls) file_write(&f, "\n\tecs_set_scope(ecs, prev_scope);\n");
             file_write(&f, "}\n");
 
             if (generate_flecs_meta) {
                 file_writef(&f, "\nvoid flecs_register_%.*s_meta(flecs::world &ecs)\n{\n", src_name_len, src_filename);
+                if (flecs_module_decls) {
+                    file_writef(&f, "\textern ECS_COMPONENT_DECLARE(%s);\n", flecs_module_decls.head.next->name);
+                    file_writef(&f, "\tecs_entity_t prev_scope = ecs_set_scope(ecs, ecs_id(%s));\n\n", flecs_module_decls.head.next->name);
+                }
 
                 for (auto decl : flecs_component_decls) {
                     auto *struct_decl = list_find(&struct_decls, decl->name);
@@ -1802,6 +1829,7 @@ bool generate_header(const char *out_path, const char *src_path, CXTranslationUn
                     }
                 }
 
+                if (flecs_module_decls) file_write(&f, "\n\tecs_set_scope(ecs, prev_scope);\n");
                 file_write(&f, "}\n");
             }
 
