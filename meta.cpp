@@ -1616,6 +1616,26 @@ void emit_flecs_meta(HashedFile *f, StructDecl *decl)
     }
 }
 
+void emit_flecs_add_id(HashedFile *f, const char *entity, ComponentArg *arg)
+{
+    if (arg->second) file_writef(f, "\tecs_add_id(ecs, %s, ecs_pair(%s, %s));\n", entity, arg->name, arg->second);
+    else file_writef(f, "\tecs_add_id(ecs, %s, %s);\n", entity, arg->name);
+}
+
+bool has_flecs_decl_meta()
+{
+    return flecs_tag_decls || flecs_enum_tag_decls || flecs_component_decls;
+}
+
+bool has_flecs_component_decl_meta()
+{
+    for (auto decl : flecs_component_decls) {
+        if (decl->args) return true;
+    }
+
+    return false;
+}
+
 bool generate_header(const char *out_path, const char *src_path, CXTranslationUnit tu)
 {
     CXCursor cursor = clang_getTranslationUnitCursor(tu);
@@ -1654,7 +1674,7 @@ bool generate_header(const char *out_path, const char *src_path, CXTranslationUn
     bool generate_tests = test_proc_decls;
     bool generate_integration_tests = integration_test_proc_decls;
     bool generate_flecs = flecs_component_decls || flecs_tag_decls || flecs_enum_tag_decls;
-    bool generate_flecs_meta = flecs_component_decls || has_flecs_meta();
+    bool generate_flecs_meta = has_flecs_decl_meta() || has_flecs_meta();
 
     if (flecs_component_decls && !flecs_module_decls) {
         ERROR(cursor, "flecs components require ECS_MODULE_DECLARE");
@@ -1750,55 +1770,30 @@ bool generate_header(const char *out_path, const char *src_path, CXTranslationUn
 
             for (auto decl : flecs_tag_decls) {
                 file_writef(&f, "\tECS_TAG_DEFINE(ecs, %s);\n", decl->name);
-                file_writef(&f, "\tecs_add_id(ecs, ecs_id(%s), EcsPairIsTag);\n", decl->name);
-
-                for (auto arg : decl->args) {
-                    if (arg->second) file_writef(&f, "\tecs_add_id(ecs, ecs_id(%s), ecs_pair(%s, %s));\n", decl->name, arg->name, arg->second);
-                    else file_writef(&f, "\tecs_add_id(ecs, ecs_id(%s), %s);\n", decl->name, arg->name);
-                }
-
-                if (decl->next) file_write(&f, "\n");
             }
 
             if (flecs_enum_tag_decls && flecs_tag_decls) file_write(&f, "\n");
 
             for (auto decl : flecs_enum_tag_decls) {
                 file_writef(&f, "\tECS_COMPONENT_DEFINE(ecs, %s);\n", decl->name);
-                file_writef(&f, "\tecs_add(ecs, Ecs%s, EcsEnum);\n", decl->name);
-
-                for (auto arg : decl->args) {
-                    if (arg->second) file_writef(&f, "\tecs_add_id(ecs, Ecs%s, ecs_pair(%s, %s));\n", decl->name, arg->name, arg->second);
-                    else file_writef(&f, "\tecs_add_id(ecs, Ecs%s, %s);\n", decl->name, arg->name);
-                }
-
-                auto *enum_decl = list_find(&enum_decls, decl->name);
-                if (!enum_decl) ERROR(cursor, "no enum decl for tag: %s", decl->name);
-                if (enum_decl->constants.count == 0) ERROR(cursor, "enum tag has no constants: %s", decl->name);
-
-                for (auto constant : enum_decl->constants) {
-                    file_writef(&f, "\t{\tecs_entity_desc_t desc = { .name = \"%s\" };\n", constant->name);
-                    file_writef(&f, "\t\tecs_entity_t c = ecs_entity_init(ecs, &desc);\n");
-                    file_writef(&f, "\t\tecs_add(ecs, c, EcsEnum);\n");
-                    file_writef(&f, "\t\tecs_i32_t v = %lld;\n", constant->value);
-                    file_writef(&f, "\t\tecs_set_id(ecs, c, ecs_pair(EcsConstant, ecs_id(ecs_i32_t)), sizeof v, &v);\n");
-                    file_write(&f, "\t}\n");
-                }
+                if (decl->next) file_write(&f, "\n");
             }
 
             if (flecs_component_decls && (flecs_enum_tag_decls || flecs_tag_decls)) file_write(&f, "\n");
 
-            for (auto decl : flecs_component_decls) {
-                file_writef(&f, "\tECS_COMPONENT_DEFINE(ecs, %s);\n", decl->name);
-                file_writef(&f, "\tecs.component<%s>()", decl->name);
-
-                for (auto arg : decl->args) {
-                    if (arg->second) file_writef(&f, "\n\t\t.add(ecs_pair(%s, %s))", arg->name, arg->second);
-                    else file_writef(&f, "\n\t\t.add(%s)", arg->name);
+            if (flecs_component_decls) {
+                for (auto decl : flecs_component_decls) {
+                    file_writef(&f, "\tECS_COMPONENT_DEFINE(ecs, %s);\n", decl->name);
                 }
 
-                file_write(&f, ";\n");
-                if (decl->next) file_write(&f, "\n");
+                file_write(&f, "\n#ifdef __cplusplus__\n");
+                for (auto decl : flecs_component_decls) {
+                    file_writef(&f, "\tecs.component<%s>();\n", decl->name);
+                }
+                file_write(&f, "#endif // __cplusplus__\n");
             }
+
+
             if (flecs_module_decls) file_write(&f, "\n\tecs_set_scope(ecs, prev_scope);\n");
             file_write(&f, "}\n");
 
@@ -1808,6 +1803,63 @@ bool generate_header(const char *out_path, const char *src_path, CXTranslationUn
                     file_writef(&f, "\textern ECS_COMPONENT_DECLARE(%s);\n", flecs_module_decls.head.next->name);
                     file_writef(&f, "\tecs_entity_t prev_scope = ecs_set_scope(ecs, ecs_id(%s));\n\n", flecs_module_decls.head.next->name);
                 }
+
+                for (auto decl : flecs_tag_decls) {
+                    if (!decl->args) continue;
+                    file_writef(&f, "\t// %s\n", decl->name);
+                    for (auto arg : decl->args) {
+                        char entity[4096];
+                        snprintf(entity, sizeof entity, "ecs_id(%s)", decl->name);
+                        emit_flecs_add_id(&f, entity, arg);
+                    }
+
+                    if (decl->next) file_write(&f, "\n");
+                }
+
+                if (flecs_enum_tag_decls && flecs_tag_decls) file_write(&f, "\n");
+
+                for (auto decl : flecs_enum_tag_decls) {
+                    file_writef(&f, "\t// %s\n", decl->name);
+                    file_writef(&f, "\tecs_add(ecs, Ecs%s, EcsEnum);\n", decl->name);
+
+                    for (auto arg : decl->args) {
+                        char entity[4096];
+                        snprintf(entity, sizeof entity, "Ecs%s", decl->name);
+                        emit_flecs_add_id(&f, entity, arg);
+                    }
+
+                    auto *enum_decl = list_find(&enum_decls, decl->name);
+                    if (!enum_decl) ERROR(cursor, "no enum decl for tag: %s", decl->name);
+                    if (enum_decl->constants.count == 0) ERROR(cursor, "enum tag has no constants: %s", decl->name);
+
+                    for (auto constant : enum_decl->constants) {
+                        file_writef(&f, "\t{\tecs_entity_desc_t desc = { .name = \"%s\" };\n", constant->name);
+                        file_writef(&f, "\t\tecs_entity_t c = ecs_entity_init(ecs, &desc);\n");
+                        file_writef(&f, "\t\tecs_add(ecs, c, EcsEnum);\n");
+                        file_writef(&f, "\t\tecs_i32_t v = %lld;\n", constant->value);
+                        file_writef(&f, "\t\tecs_set_id(ecs, c, ecs_pair(EcsConstant, ecs_id(ecs_i32_t)), sizeof v, &v);\n");
+                        file_write(&f, "\t}\n");
+                    }
+
+                    if (decl->next) file_write(&f, "\n");
+                }
+
+                if (flecs_component_decls && (flecs_enum_tag_decls || flecs_tag_decls)) file_write(&f, "\n");
+
+                for (auto decl : flecs_component_decls) {
+                    if (!decl->args) continue;
+
+                    file_writef(&f, "\tecs.component<%s>()", decl->name);
+                    for (auto arg : decl->args) {
+                        if (arg->second) file_writef(&f, "\n\t\t.add(ecs_pair(%s, %s))", arg->name, arg->second);
+                        else file_writef(&f, "\n\t\t.add(%s)", arg->name);
+                    }
+
+                    file_write(&f, ";\n");
+                    if (decl->next) file_write(&f, "\n");
+                }
+
+                if (flecs_component_decls && has_flecs_component_decl_meta()) file_write(&f, "\n");
 
                 for (auto decl : flecs_component_decls) {
                     auto *struct_decl = list_find(&struct_decls, decl->name);
