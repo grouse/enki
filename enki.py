@@ -1027,6 +1027,9 @@ def meta(t : Target, sources : list[str], flags : list[str] = None):
         o.deps.append("$builddir/meta")
         #o.variables["depfile"] = depfile
 
+        if os.path.splitext(source)[1] in (".cc", ".cpp", ".cxx"):
+            o.variables["metaflags"] = "$cxxflags"
+
         if flags: o.flags.extend(flags)
 
         t.generated.append(o)

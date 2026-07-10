@@ -27,7 +27,7 @@ rule compdb_merge
   description = MERGE DB
 
 rule meta
-  command = $builddir/meta.exe $metaflags --depfile $out.d $in -o $out -- $cflags
+  command = $builddir/meta.exe --depfile $out.d $in -o $out -- $cflags $metaflags $flags
   description = META $in
   restat = 1
 
