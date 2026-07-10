@@ -621,6 +621,29 @@ int clang_strcmp(CXString lhs, CXString rhs)
     return strcmp(clang_getCString(lhs), clang_getCString(rhs));
 }
 
+bool clang_FunctionDecl_isDeclaredInline(CXTranslationUnit tu, CXCursor cursor)
+{
+    CXSourceRange range = clang_getCursorExtent(cursor);
+
+    CXToken *tokens = nullptr;
+    unsigned token_count = 0;
+    clang_tokenize(tu, range, &tokens, &token_count);
+    defer { clang_disposeTokens(tu, tokens, token_count); };
+
+    for (unsigned i = 0; i < token_count; i++) {
+        if (clang_getTokenKind(tokens[i]) != CXToken_Keyword) continue;
+
+        CXString token_s = clang_getTokenSpelling(tu, tokens[i]);
+        defer { clang_disposeString(token_s); };
+
+        if (clang_strcmp(token_s, "inline") == 0) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
 int clang_path_starts_with(CXString lhs, const char *rhs)
 {
     if (clang_String_isNull(lhs)) return !rhs || rhs[0] == '\0' ? 0 : -1;
@@ -1191,11 +1214,6 @@ void emit_proc_decl(HashedFile *f, CXTranslationUnit tu, CXCursor cursor, Cursor
         clang_tokenize(tu, range, &tokens, &token_count);
         defer { clang_disposeTokens(tu, tokens, token_count); };
 
-        if (!token_count) {
-            ERROR(cursor, "no tokens for decl: '%s', move 'EXPORT' decl to end of declarationt to work-around",
-                  proc_sz);
-        }
-
         int paren = 0;
         for (CXToken *it = tokens; it < tokens+token_count; it++) {
             CXTokenKind kind = clang_getTokenKind(*it);
@@ -1303,6 +1321,11 @@ void emit_proc_decl(HashedFile *f, CXTranslationUnit tu, CXCursor cursor, Cursor
             if (i < arg_count - 1) file_write(f, ", ");
         }
     }
+
+    if (clang_Cursor_isVariadic(cursor)) {
+        if (arg_count) file_write(f, ", ");
+        file_write(f, "..."); 
+    }
 }
 
 CXChildVisitResult clang_visitor(
@@ -1355,10 +1378,17 @@ CXChildVisitResult clang_visitor(
         DEBUG_LOG("cursor [%s] in file: %s", cursor_sz, clang_getCString(c_filename));
     }
 
+    auto cursor_kind = clang_getCursorKind(cursor);
+    if (cursor_kind == CXCursor_FunctionDecl) {
+        CXLinkageKind linkage = clang_getCursorLinkage(cursor);
+        bool inlined = clang_FunctionDecl_isDeclaredInline(tu, cursor);
+        cursor_d.attributes.internal = linkage == CXLinkage_Internal;
+        cursor_d.attributes.exported = !inlined && (linkage == CXLinkage_Internal || linkage == CXLinkage_External);
+    }
+
     if (clang_Cursor_hasAttrs(cursor))
         clang_visitChildren(cursor, clang_getAttributes, &cursor_d.attributes);
 
-    auto cursor_kind = clang_getCursorKind(cursor);
     if (cursor_kind == CXCursor_FunctionDecl) {
         if (!cursor_d.attributes.exported) return CXChildVisit_Continue;
 
