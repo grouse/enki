@@ -1751,12 +1751,15 @@ bool generate_header(const char *out_path, const char *src_path, CXTranslationUn
                     file_writef(&f, "extern void flecs_register_%.*s_meta(flecs::world &ecs);\n", src_name_len, src_filename);
                 }
 
-                emit_decls(&f, flecs_tag_decls, "extern ECS_TAG_DECLARE(%s);");
+                emit_decls(&f, flecs_tag_decls, "extern ECS_COMPONENT_DECLARE(%s);");
                 emit_decls(&f, flecs_enum_tag_decls, "extern ECS_COMPONENT_DECLARE(%s);");
                 emit_decls(&f, flecs_component_decls, "extern ECS_COMPONENT_DECLARE(%s);");
 
-                if (flecs_component_decls || flecs_enum_tag_decls) {
+                if (flecs_component_decls || flecs_enum_tag_decls || flecs_tag_decls) {
                     file_write(&f, "\n");
+                    for (auto decl : flecs_tag_decls) {
+                        file_writef(&f, "#define Ecs%s ecs_id(%s)\n", decl->name, decl->name);
+                    }
                     for (auto decl : flecs_enum_tag_decls) {
                         file_writef(&f, "#define Ecs%s ecs_id(%s)\n", decl->name, decl->name);
                     }
@@ -1789,7 +1792,8 @@ bool generate_header(const char *out_path, const char *src_path, CXTranslationUn
             file_writef(&f, "\n#if defined(%s_GENERATED_IMPL) && !defined(%s_GENERATED_IMPL_ONCE)\n", name, name);
             file_writef(&f, "#define %s_GENERATED_IMPL_ONCE\n", name);
 
-            emit_decls(&f, flecs_enum_tag_decls, "ECS_COMPONENT_DECLARE(%s);");
+            emit_decls(&f, flecs_tag_decls,       "ECS_COMPONENT_DECLARE(%s);");
+            emit_decls(&f, flecs_enum_tag_decls,  "ECS_COMPONENT_DECLARE(%s);");
             emit_decls(&f, flecs_component_decls, "ECS_COMPONENT_DECLARE(%s);");
 
             file_writef(&f, "\nvoid flecs_register_%.*s(flecs::world &ecs)\n{\n", src_name_len, src_filename);
@@ -1799,7 +1803,7 @@ bool generate_header(const char *out_path, const char *src_path, CXTranslationUn
             }
 
             for (auto decl : flecs_tag_decls) {
-                file_writef(&f, "\tECS_TAG_DEFINE(ecs, %s);\n", decl->name);
+                file_writef(&f, "\tecs_id(%s) = ecs.component<%s>(\"%s\").id();\n", decl->name, decl->name, decl->name);
             }
 
             if (flecs_enum_tag_decls && flecs_tag_decls) file_write(&f, "\n");
