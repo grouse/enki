@@ -1803,10 +1803,15 @@ bool generate_header(const char *out_path, const char *src_path, CXTranslationUn
             }
 
             for (auto decl : flecs_tag_decls) {
-                file_writef(&f, "\t{\n");
-                file_writef(&f, "\t\tecs_entity_desc_t desc = { .name = \"Ecs%s\", .parent = ecs_get_scope(ecs) };\n", decl->name);
-                file_writef(&f, "\t\tecs_id(%s) = ecs.component<%s>(nullptr, true, ecs_entity_init(ecs, &desc)).id();\n", decl->name, decl->name);
-                file_writef(&f, "\t}\n");
+                file_writef(&f, "\tECS_TAG_DEFINE(ecs, %s);\n", decl->name);
+            }
+
+            if (flecs_tag_decls) {
+                file_write(&f, "\n#ifdef __cplusplus__\n");
+                for (auto decl : flecs_tag_decls) {
+                    file_writef(&f, "\tecs.component<%s>(nullptr, true, ecs_id(%s));\n", decl->name, decl->name);
+                }
+                file_write(&f, "#endif // __cplusplus__\n");
             }
 
             if (flecs_enum_tag_decls && flecs_tag_decls) file_write(&f, "\n");
