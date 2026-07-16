@@ -702,6 +702,44 @@ bool clang_isArray(CXType type)
         type.kind == CXType_DependentSizedArray;
 }
 
+struct FlecsIntegerType {
+    const char *name;
+    bool is_unsigned;
+};
+
+FlecsIntegerType flecs_integer_type(CXType type)
+{
+    bool is_unsigned;
+    switch (type.kind) {
+    case CXType_Char_U:
+    case CXType_UChar:
+    case CXType_UShort:
+    case CXType_UInt:
+    case CXType_ULong:
+    case CXType_ULongLong:
+        is_unsigned = true;
+        break;
+    case CXType_Char_S:
+    case CXType_SChar:
+    case CXType_Short:
+    case CXType_Int:
+    case CXType_Long:
+    case CXType_LongLong:
+        is_unsigned = false;
+        break;
+    default:
+        return {};
+    }
+
+    switch (clang_Type_getSizeOf(type)) {
+    case 1: return { is_unsigned ? "ecs_u8_t"  : "ecs_i8_t",  is_unsigned };
+    case 2: return { is_unsigned ? "ecs_u16_t" : "ecs_i16_t", is_unsigned };
+    case 4: return { is_unsigned ? "ecs_u32_t" : "ecs_i32_t", is_unsigned };
+    case 8: return { is_unsigned ? "ecs_u64_t" : "ecs_i64_t", is_unsigned };
+    default: return {};
+    }
+}
+
 bool is_alpha(char c)
 {
     return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z');
@@ -1524,11 +1562,18 @@ void emit_decls(HashedFile *f, List<T> decls, const char *fmt)
 {
     if (!decls) return;
 
-    file_write(f, "\n");
     for (auto decl : decls) {
         file_writef(f, fmt, decl->name);
         file_write(f, "\n");
     }
+}
+
+template<typename T>
+void emit_decls_ln(HashedFile *f, List<T> decls, const char *fmt)
+{
+    if (!decls) return;
+    file_write(f, "\n");
+    emit_decls(f, decls, fmt);
 }
 
 void emit_include(HashedFile *f, const char *path)
@@ -1738,6 +1783,14 @@ bool generate_header(const char *out_path, const char *src_path, CXTranslationUn
         };
 
         if (public_proc_decls || generate_flecs) {
+            for (auto decl : flecs_enum_tag_decls) {
+                auto *enum_decl = list_find(&enum_decls, decl->name);
+                if (!enum_decl) ERROR(cursor, "no enum decl for tag: %s", decl->name);
+                if (enum_decl->constants.count == 0) ERROR(cursor, "enum tag has no constants: %s", decl->name);
+                if (!flecs_integer_type(enum_decl->type).name) ERROR(cursor, "unsupported enum underlying type: %s", decl->name);
+            }
+
+
             emit_include_guard_begin(&f, nullptr, name, "GENERATED");
 
             for (auto decl : public_proc_decls) {
@@ -1751,16 +1804,19 @@ bool generate_header(const char *out_path, const char *src_path, CXTranslationUn
                     file_writef(&f, "extern void flecs_register_%.*s_meta(flecs::world &ecs);\n", src_name_len, src_filename);
                 }
 
-                emit_decls(&f, flecs_tag_decls, "extern ECS_COMPONENT_DECLARE(%s);");
-                emit_decls(&f, flecs_enum_tag_decls, "extern ECS_COMPONENT_DECLARE(%s);");
-                emit_decls(&f, flecs_component_decls, "extern ECS_COMPONENT_DECLARE(%s);");
+                emit_decls_ln(&f, flecs_tag_decls, "extern ECS_COMPONENT_DECLARE(%s);");
+                emit_decls_ln(&f, flecs_component_decls, "extern ECS_COMPONENT_DECLARE(%s);");
 
-                if (flecs_component_decls || flecs_enum_tag_decls || flecs_tag_decls) {
+                for (auto decl : flecs_enum_tag_decls) {
+                    file_writef(&f, "\n#define Ecs%s ecs_id(%s)\n", decl->name, decl->name);
+                    file_writef(&f, "extern ECS_COMPONENT_DECLARE(%s);\n", decl->name);
+                    auto *enum_decl = list_find(&enum_decls, decl->name);
+                    emit_decls(&f, enum_decl->constants, "extern ECS_COMPONENT_DECLARE(%s);");
+                }
+
+                if (flecs_component_decls || flecs_tag_decls) {
                     file_write(&f, "\n");
                     for (auto decl : flecs_tag_decls) {
-                        file_writef(&f, "#define Ecs%s ecs_id(%s)\n", decl->name, decl->name);
-                    }
-                    for (auto decl : flecs_enum_tag_decls) {
                         file_writef(&f, "#define Ecs%s ecs_id(%s)\n", decl->name, decl->name);
                     }
                     for (auto decl : flecs_component_decls) {
@@ -1792,9 +1848,14 @@ bool generate_header(const char *out_path, const char *src_path, CXTranslationUn
             file_writef(&f, "\n#if defined(%s_GENERATED_IMPL) && !defined(%s_GENERATED_IMPL_ONCE)\n", name, name);
             file_writef(&f, "#define %s_GENERATED_IMPL_ONCE\n", name);
 
-            emit_decls(&f, flecs_tag_decls,       "ECS_COMPONENT_DECLARE(%s);");
-            emit_decls(&f, flecs_enum_tag_decls,  "ECS_COMPONENT_DECLARE(%s);");
-            emit_decls(&f, flecs_component_decls, "ECS_COMPONENT_DECLARE(%s);");
+            emit_decls_ln(&f, flecs_tag_decls,       "ECS_COMPONENT_DECLARE(%s);");
+            emit_decls_ln(&f, flecs_component_decls, "ECS_COMPONENT_DECLARE(%s);");
+
+            for (auto decl : flecs_enum_tag_decls) {
+                file_writef(&f, "\nECS_COMPONENT_DECLARE(%s);\n", decl->name);
+                auto *enum_decl = list_find(&enum_decls, decl->name);
+                emit_decls(&f, enum_decl->constants, "ECS_COMPONENT_DECLARE(%s);");
+            }
 
             file_writef(&f, "\nvoid flecs_register_%.*s(flecs::world &ecs)\n{\n", src_name_len, src_filename);
             if (flecs_module_decls) {
@@ -1818,6 +1879,26 @@ bool generate_header(const char *out_path, const char *src_path, CXTranslationUn
 
             for (auto decl : flecs_enum_tag_decls) {
                 file_writef(&f, "\tECS_COMPONENT_DEFINE(ecs, %s);\n", decl->name);
+                auto *enum_decl = list_find(&enum_decls, decl->name);
+                FlecsIntegerType underlying = flecs_integer_type(enum_decl->type);
+                file_writef(&f, "\t{\n\t\tecs_enum_desc_t desc = {\n\t\t\t.entity = Ecs%s,\n\t\t\t.constants = {\n", decl->name);
+
+                for (auto constant : enum_decl->constants) {
+                    if (underlying.is_unsigned) {
+                        file_writef(&f, "\t\t\t\t{ .name = \"%s\", .value_unsigned = %llu },\n", constant->name, (unsigned long long)constant->value);
+                    } else {
+                        file_writef(&f, "\t\t\t\t{ .name = \"%s\", .value = %lld },\n", constant->name, constant->value);
+                    }
+                }
+
+                file_writef(&f, "\t\t\t},\n\t\t\t.underlying_type = ecs_id(%s),\n\t\t};\n", underlying.name);
+                file_writef(&f, "\t\tecs_id(%s) = ecs_enum_init(ecs, &desc);\n", decl->name);
+
+                for (auto constant : enum_decl->constants) {
+                    file_writef(&f, "\t\tecs_id(%s) = ecs_lookup_child(ecs, Ecs%s, \"%s\");\n", constant->name, decl->name, constant->name);
+                }
+
+                file_write(&f, "\t}\n");
                 if (decl->next) file_write(&f, "\n");
             }
 
@@ -1827,8 +1908,13 @@ bool generate_header(const char *out_path, const char *src_path, CXTranslationUn
                 for (auto decl : flecs_component_decls) {
                     file_writef(&f, "\tECS_COMPONENT_DEFINE(ecs, %s);\n", decl->name);
                 }
+            }
 
+            if (flecs_enum_tag_decls || flecs_component_decls) {
                 file_write(&f, "\n#ifdef __cplusplus__\n");
+                for (auto decl : flecs_enum_tag_decls) {
+                    file_writef(&f, "\tecs.component<%s>(nullptr, true, Ecs%s);\n", decl->name, decl->name);
+                }
                 for (auto decl : flecs_component_decls) {
                     file_writef(&f, "\tecs.component<%s>();\n", decl->name);
                 }
@@ -1861,26 +1947,13 @@ bool generate_header(const char *out_path, const char *src_path, CXTranslationUn
                 if (flecs_enum_tag_decls && flecs_tag_decls) file_write(&f, "\n");
 
                 for (auto decl : flecs_enum_tag_decls) {
+                    if (!decl->args) continue;
                     file_writef(&f, "\t// %s\n", decl->name);
-                    file_writef(&f, "\tecs_add(ecs, Ecs%s, EcsEnum);\n", decl->name);
 
                     for (auto arg : decl->args) {
                         char entity[4096];
                         snprintf(entity, sizeof entity, "Ecs%s", decl->name);
                         emit_flecs_add_id(&f, entity, arg);
-                    }
-
-                    auto *enum_decl = list_find(&enum_decls, decl->name);
-                    if (!enum_decl) ERROR(cursor, "no enum decl for tag: %s", decl->name);
-                    if (enum_decl->constants.count == 0) ERROR(cursor, "enum tag has no constants: %s", decl->name);
-
-                    for (auto constant : enum_decl->constants) {
-                        file_writef(&f, "\t{\tecs_entity_desc_t desc = { .name = \"%s\" };\n", constant->name);
-                        file_writef(&f, "\t\tecs_entity_t c = ecs_entity_init(ecs, &desc);\n");
-                        file_writef(&f, "\t\tecs_add(ecs, c, EcsEnum);\n");
-                        file_writef(&f, "\t\tecs_i32_t v = %lld;\n", constant->value);
-                        file_writef(&f, "\t\tecs_set_id(ecs, c, ecs_pair(EcsConstant, ecs_id(ecs_i32_t)), sizeof v, &v);\n");
-                        file_write(&f, "\t}\n");
                     }
 
                     if (decl->next) file_write(&f, "\n");
