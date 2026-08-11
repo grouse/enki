@@ -4,11 +4,11 @@ rule run
   pool = console
 
 rule ninja
-  command = ninja -C $dir $target
+  command = "$ninja" -C "$dir" $target
   pool = console
   restat = 1
 
 rule cmake
-  command = cmake -GNinja $opts -S $in -B $dst
+  command = cmake -GNinja "-DCMAKE_MAKE_PROGRAM=$ninja" $opts -S $in -B $dst
   pool = console
   restat = 1
