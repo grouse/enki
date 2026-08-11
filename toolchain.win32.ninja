@@ -15,11 +15,11 @@ rule symlink
   description = SYMLINK $out -> $in
 
 rule compdb
-  command = "$ninja" -C "$builddir" -t compdb > "$out"
+  command = cmd /c "$ninja -C $builddir -t compdb > $out"
   description = COMPILE DB
 
 rule compdb_subninja
-  command = "$ninja" -C "$dir" -t compdb > "$dir/compile_commands.json"
+  command = cmd /c "$ninja -C $dir -t compdb > $dir/compile_commands.json"
   description = COMPILE DB
 
 rule compdb_merge
