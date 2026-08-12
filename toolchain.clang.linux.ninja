@@ -9,12 +9,12 @@ rule cxx
   depfile = $out.d
 
 rule pch_cc
-  command = $compiler_launcher clang -MMD -MF $out.d $cflags $ccflags $flags -x c-header -Xclang -emit-pch -o $out $in
+  command = $compiler_launcher clang -MMD -MF $out.d $cflags $ccflags $flags -x c-header -Xclang -emit-pch -Xclang -fno-pch-timestamp -o $out $in
   description = PCH $in
   depfile = $out.d
 
 rule pch_cxx
-  command = $compiler_launcher clang++ -MMD -MF $out.d $cflags $cxxflags $flags -x c++-header -Xclang -emit-pch -fpch-instantiate-templates -o $out $in
+  command = $compiler_launcher clang++ -MMD -MF $out.d $cflags $cxxflags $flags -x c++-header -Xclang -emit-pch -Xclang -fno-pch-timestamp -fpch-instantiate-templates -o $out $in
   description = PCH $in
   depfile = $out.d
 
