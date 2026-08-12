@@ -305,8 +305,6 @@ class Target:
             else:
                 flibs.append(f_lib(lib))
 
-        implicit_deps : list[str] = [ npath_join("$builddir", "compile_commands.json") ]
-
         if self.generated:
             generated : list[str] = []
             for gen in self.generated:
@@ -328,7 +326,7 @@ class Target:
             order_deps.extend(generated)
 
         n.newline()
-        n.build(self.out, self.rule, objects, implicit = implicit_deps, order_only = order_deps)
+        n.build(self.out, self.rule, objects, order_only = order_deps)
         vars(n, "libs", flibs, 1)
 
         if self.ext:
@@ -730,7 +728,7 @@ class Ninja:
 
         if self.default:
             writer.newline()
-            writer.default(self.default.name)
+            writer.default([self.default.name, npath_join("$builddir", "compile_commands.json")])
         
         # dist target - copy executables and libraries from default target's dependency tree
         dist_targets = []
