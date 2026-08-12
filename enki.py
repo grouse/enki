@@ -510,6 +510,7 @@ class Ninja:
         self.host_os    = sys.platform
         self.target_os  = target_os
         self.compiler   = "clang"
+        self.compiler_launcher = ""
         self.config_type = config_type
 
         self.variables    : dict[str, str] = dict()
@@ -588,6 +589,8 @@ class Ninja:
     def generate(self):
         root_dir = os.path.realpath(self.root)
         writer = ninja.Writer(open(os.path.join(self.build_dir, "build.ninja"), "w"))
+
+        self.variables["compiler_launcher"] = self.compiler_launcher
 
         # Create dist directory
         dist_dir = os.path.join(self.build_dir, "dist")
