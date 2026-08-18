@@ -590,7 +590,7 @@ class Ninja:
         root_dir = os.path.realpath(self.root)
         writer = ninja.Writer(open(os.path.join(self.build_dir, "build.ninja"), "w"))
 
-        self.variables["compiler_launcher"] = self.compiler_launcher
+        self.variables["compiler_launcher"] = f"{self.compiler_launcher} " if self.compiler_launcher else ""
 
         # Create dist directory
         dist_dir = os.path.join(self.build_dir, "dist")
