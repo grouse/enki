@@ -610,7 +610,10 @@ CXChildVisitResult clang_visitor(
 
 
         CXType underlying = clang_getEnumDeclIntegerType(cursor);
-        auto *decl = list_push(&enum_decls, strdup(clang_getCString(type_s)), underlying);
+        underlying = clang_getCanonicalType(underlying);
+        const char *type_sz = clang_getCString(type_s);
+
+        auto *decl = list_push(&enum_decls, strdup(type_sz), underlying);
         clang_visitChildren(cursor, clang_pushConstantDecls, &decl->constants);
     } else if (cursor_kind == CXCursor_MacroExpansion) {
         if (!clang_Cursor_isInFile(cursor, in->src, in->h)) {
