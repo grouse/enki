@@ -918,7 +918,7 @@ bool generate_header(const char *out_path, const char *src_path, CXTranslationUn
             XXH128_hash_t curr = hash_file_on_disk(path);
 
             if (!XXH128_isEqual(hash, curr)) {
-                if (FILE *fp = fopen(path, "wb")) {
+                if (FILE *fp = fopen(path, "w")) {
                     for (auto *it = &f.stream.head; it; it = it->next) {
                         fwrite(it->data, 1, it->count, fp);
                     }
@@ -1168,7 +1168,7 @@ bool generate_header(const char *out_path, const char *src_path, CXTranslationUn
             XXH128_hash_t curr = hash_file_on_disk(path);
 
             if (!XXH128_isEqual(hash, curr)) {
-                if (FILE *fp = fopen(path, "wb")) {
+                if (FILE *fp = fopen(path, "w")) {
                     for (auto *it = &f.stream.head; it; it = it->next) {
                         fwrite(it->data, 1, it->count, fp);
                     }
@@ -1299,7 +1299,7 @@ bool generate_header(const char *out_path, const char *src_path, CXTranslationUn
             XXH128_hash_t curr = hash_file_on_disk(path);
 
             if (!XXH128_isEqual(hash, curr)) {
-                if (FILE *fp = fopen(path, "wb")) {
+                if (FILE *fp = fopen(path, "w")) {
                     for (auto *it = &f.stream.head; it; it = it->next) {
                         fwrite(it->data, 1, it->count, fp);
                     }
@@ -1333,7 +1333,7 @@ bool generate_header(const char *out_path, const char *src_path, CXTranslationUn
         XXH3_128bits_reset(&f.hash);
 
         defer {
-            if (FILE *fp = fopen(path, "wb")) {
+            if (FILE *fp = fopen(path, "w")) {
                 for (auto *it = &f.stream.head; it; it = it->next) {
                     fwrite(it->data, 1, it->count, fp);
                 }
