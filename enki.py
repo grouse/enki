@@ -1024,12 +1024,11 @@ def meta(t : Target, sources : list[str], flags : list[str] = None):
         if source_name.startswith("$"): source_name = os.path.basename(source_name)
         out = npath_join("$gendir", normpath(source_name+".h"))
 
-        objfile = npath_join("$objdir", normpath(source_name+".o"))
-        depfile = objfile+".d"
+        depfile = npath_join("$objdir", normpath(source_name + ".h.d"))
 
         o = Object("meta", source, out)
         o.deps.append("$builddir/meta")
-        #o.variables["depfile"] = depfile
+        o.variables["depfile"] = depfile
 
         if os.path.splitext(source)[1] in (".cc", ".cpp", ".cxx"):
             o.variables["metaflags"] = "$cxxflags"

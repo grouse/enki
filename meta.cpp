@@ -1327,6 +1327,7 @@ bool generate_header(const char *out_path, const char *src_path, CXTranslationUn
 
     if (opts.depfile && includes) {
         const char *path = opts.depfile;
+        std::filesystem::create_directories(std::filesystem::path(path).parent_path());
 
         HashedFile f{};
         XXH3_INITSTATE(&f.hash);
