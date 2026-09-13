@@ -14,6 +14,10 @@ rule symlink
   command = ln -sf $in $out
   description = SYMLINK $out -> $in
 
+rule symlink_dir
+  command = ln -sfn $in $out
+  description = SYMLINK DIR $out -> $in
+
 rule compdb
   command = "$ninja" -C "$builddir" -t compdb > "$out"
   description = COMPILE DB

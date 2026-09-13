@@ -1004,6 +1004,10 @@ def symlink(t : Target, src : str, dst : str):
     obj = Object("symlink", src,  dst)
     t.objects.append(obj)
 
+def symlink_dir(t : Target, src : str, dst : str):
+    obj = Object("symlink_dir", src, dst)
+    t.objects.append(obj)
+
 def dep(t : Target, deps : list[Target], public = False):
     if type(deps) is not list: return dep(t, [deps], public)
 
