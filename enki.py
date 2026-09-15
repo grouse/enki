@@ -335,6 +335,12 @@ class Target:
 
         print("wrote %s." % os.path.basename(n.output.name))
 
+class TestRun:
+    def __init__(self, name : str, target : Target, args : list[str] = None):
+        self.name = name
+        self.target = target
+        self.args = args if args else []
+
 class CMake:
     def __init__(self, name : str, parent, src_dir : str, target_os : str, opts : list[str] = None):
         self.name      : str          = name
@@ -518,6 +524,7 @@ class Ninja:
         self.targets      : list[Target] = []
         self.cmakes       : list[CMake] = []
         self.test_targets : list[Target] = []
+        self.test_runs    : list[TestRun] = []
         self.rules        : dict[str, Rule] = dict()
         self.default      : Target = None
         self.dist_copies  : list[tuple[str, str]] = []  # (src_path, dest_name)
@@ -584,7 +591,11 @@ class Ninja:
         for rule, info in self.rules.items(): t._flags[rule] = []
 
         self.test_targets.append(t)
+        self.test_run(name, t)
         return t
+
+    def test_run(self, name : str, target : Target, args : list[str] = None):
+        self.test_runs.append(TestRun(name, target, args))
 
     def generate(self):
         root_dir = os.path.realpath(self.root)
@@ -714,20 +725,27 @@ class Ninja:
             t.generate(w, self)
             writer.subninja(npath_join("$builddir", filename))
 
-            w.newline()
-            w.build("$builddir/%s.stamp" % t.name, "run", "$builddir/{}{}".format(t.name, t.ext))
-
         if self.targets: writer.newline()
         for t in self.targets: writer.build(t.name, "phony", t.out)
 
         test_targets : list[str] = []
-        for t in self.test_targets:
-            writer.build(t.name, "phony", npath_join("$builddir", "%s.stamp" % t.name))
-            test_targets.append(t.name)
+        all_tests_dependency = None
+        for test in self.test_runs:
+            test_name = "tests/%s" % test.name
+            stamp = npath_join("$builddir", "%s.stamp" % test_name)
+            writer.build(stamp, "run", test.target.out)
+            vars(writer, "flags", test.args, indent=1)
+            writer.build(test_name, "phony", stamp)
+            test_targets.append(test_name)
+
+            all_stamp = npath_join("$builddir", "tests/%s.all.stamp" % test.name)
+            writer.build(all_stamp, "run", test.target.out, order_only=all_tests_dependency)
+            vars(writer, "flags", test.args, indent=1)
+            all_tests_dependency = all_stamp
 
         if gen_targets or test_targets: writer.newline()
         if gen_targets: writer.build("gen.all", "phony", gen_targets)
-        if test_targets: writer.build("tests/all", "phony", test_targets)
+        if test_targets: writer.build("tests/all", "phony", all_tests_dependency)
 
         if self.default:
             writer.newline()
@@ -1121,6 +1139,8 @@ def generate_vscode_config(sourcedir, configs, builds, debugger="lldb", ninja="n
         test_targets.append(t.name)
         target_exts[t.name] = t.ext
 
+    test_runs = ["tests/%s" % test.name for test in build0.test_runs]
+
     # --- tasks.json ---
     tasks = []
     for config_name in configs:
@@ -1139,7 +1159,7 @@ def generate_vscode_config(sourcedir, configs, builds, debugger="lldb", ninja="n
         tasks.append(task)
 
         # build + run tests
-        if test_targets:
+        if test_runs:
             tasks.append({
                 "label": f"build:{config_name} tests",
                 "type": "process",
@@ -1148,6 +1168,16 @@ def generate_vscode_config(sourcedir, configs, builds, debugger="lldb", ninja="n
                 "problemMatcher": "$gcc",
                 "group": { "kind": "test" },
             })
+
+            for test_name in test_runs:
+                tasks.append({
+                    "label": f"build:{config_name} {test_name}",
+                    "type": "process",
+                    "command": ninja,
+                    "args": ["-C", f"${{workspaceFolder}}/build/{config_name}", test_name],
+                    "problemMatcher": "$gcc",
+                    "group": { "kind": "test" },
+                })
 
     tasks_json = {
         "version": "2.0.0",
@@ -1214,7 +1244,7 @@ def generate_vscode_config(sourcedir, configs, builds, debugger="lldb", ninja="n
                 "request": "launch",
                 prog_key: program,
                 "cwd": f"${{workspaceFolder}}/build/{config_name}",
-                "preLaunchTask": f"build:{config_name} tests",
+                "preLaunchTask": f"build:{config_name} {test_name}",
                 "presentation": { "clear": True },
             }
             if extra_launch:

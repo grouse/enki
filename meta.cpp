@@ -858,6 +858,112 @@ bool has_flecs_component_decl_meta()
     return false;
 }
 
+int compare_test_categories(const void *lhs, const void *rhs)
+{
+    return strcmp(*(char**)lhs, *(char**)rhs);
+}
+
+void emit_test_suites(
+    HashedFile *f,
+    CXTranslationUnit tu,
+    List<ProcDecl> *decls,
+    const char *name,
+    const char *suite_suffix)
+{
+    for (auto decl : *decls) {
+        emit_proc_decl(f, tu, decl->cursor, decl->attributes);
+    }
+    file_write(f, "\n");
+
+    DynamicArray<char*> categories{};
+    array_add(&categories, (char*)"");
+
+    DynamicArray<DynamicArray<ProcDecl>> procs{};
+    array_add(&procs, {});
+
+    for (auto decl : *decls) {
+        const char *test_name = decl->name;
+        for (const char *it = strchr(decl->name, '_'); it; it = strchr(it+1, '_')) {
+            if (it[1] == '_' && it[2]) {
+                test_name = it+2;
+                it += 1;
+            }
+        }
+
+        if (test_name != decl->name) {
+            size_t ci = (size_t)test_name - (size_t)decl->name - 2;
+            char c = decl->name[ci];
+            decl->name[ci] = '\0';
+
+            char *category = decl->name;
+            int idx = array_find(&categories, category);
+            if (idx == -1) idx = array_add(&categories, strdup(category));
+            decl->name[ci] = c;
+
+            if (idx >= procs.count) array_add(&procs, {});
+            array_add(&procs[idx], ProcDecl(decl));
+        } else {
+            array_add(&procs[0], ProcDecl(decl));
+        }
+    }
+
+    for (int i = 1; i < categories.count; i++) {
+        char *category = categories[i];
+        file_writef(f, "TestSuite %s__%s__%s[] = {\n", name, category, suite_suffix);
+
+        for (auto decl : procs[i]) {
+            const char *test_name = decl.name;
+            for (const char *it = strchr(decl.name, '_'); it; it = strchr(it+1, '_')) {
+                if (it[1] == '_' && it[2]) {
+                    test_name = it+2;
+                    it += 1;
+                }
+            }
+
+            file_writef(f, "\t{ \"%s\", %s },\n", test_name, decl.name);
+        }
+
+        file_write(f, "};\n\n");
+    }
+
+    qsort(categories.data, categories.count, sizeof *categories.data, compare_test_categories);
+
+    file_writef(f, "TestSuite %s__%s[] = {\n", name, suite_suffix);
+    for (int i = 0; i < categories.count; i++) {
+        char *category = categories[i];
+        if (category && *category) {
+            file_write(f, "\t{ \"");
+            for (char *it = category; *it; it++) {
+                if (*it == '_' && *(it+1) == '_') {
+                    file_writec(f, '/');
+                    it++;
+                } else file_writec(f, *it);
+            }
+            file_write(f, "\"");
+
+            file_writef(
+                f,
+                ", nullptr, %s__%s__%s, sizeof(%s__%s__%s)/sizeof(%s__%s__%s[0]) },\n",
+                name, category, suite_suffix,
+                name, category, suite_suffix,
+                name, category, suite_suffix);
+        } else {
+            for (auto decl : procs[i]) {
+                const char *test_name = decl.name;
+                for (const char *it = strchr(decl.name, '_'); it; it = strchr(it+1, '_')) {
+                    if (it[1] == '_' && it[2]) {
+                        test_name = it+2;
+                        it += 1;
+                    }
+                }
+
+                file_writef(f, "\t{ \"%s\", %s },\n", test_name, decl.name);
+            }
+        }
+    }
+    file_write(f, "};\n");
+}
+
 bool generate_header(const char *out_path, const char *src_path, CXTranslationUnit tu)
 {
     CXCursor cursor = clang_getTranslationUnitCursor(tu);
@@ -1151,13 +1257,9 @@ bool generate_header(const char *out_path, const char *src_path, CXTranslationUn
         }
     }
 
-    if (generate_tests) {
-        char tests_out_path[4096];
-        snprintf(tests_out_path, sizeof tests_out_path, "%s/tests", out_path);
-        std::filesystem::create_directories(tests_out_path);
-
+    if (generate_tests || generate_integration_tests) {
         char path[4096];
-        snprintf(path, sizeof path, "%s/%.*s.h", tests_out_path, src_name_len, src_filename);
+        snprintf(path, sizeof path, "%s/%.*s.h", out_path, src_name_len, src_filename);
 
         HashedFile f{};
         XXH3_INITSTATE(&f.hash);
@@ -1179,150 +1281,17 @@ bool generate_header(const char *out_path, const char *src_path, CXTranslationUn
             }
         };
 
-        emit_include_guard_begin(&f, nullptr, name, "TEST");
-        defer { emit_include_guard_end(&f, nullptr, name, "TEST"); };
+        emit_include_guard_begin(&f, nullptr, name, "TESTS");
+        defer { emit_include_guard_end(&f, nullptr, name, "TESTS"); };
 
-        for (auto decl : test_proc_decls) {
-            emit_proc_decl(&f , tu, decl->cursor, decl->attributes);
-        }
-        file_write(&f, "\n");
-
-        DynamicArray<char*> categories{};
-        array_add(&categories, (char*)"");
-
-        DynamicArray<DynamicArray<ProcDecl>> procs{};
-        array_add(&procs, {});
-
-        for (auto decl : test_proc_decls) {
-            const char *test_name = decl->name;
-            for (const char *it = strchr(decl->name, '_'); it; it = strchr(it+1, '_')) {
-                if (it[1] == '_' && it[2]) {
-                    test_name = it+2;
-                    it += 1;
-                }
-            }
-
-            if (test_name != decl->name) {
-                size_t ci = (size_t)test_name - (size_t)decl->name - 2;
-                char c = decl->name[ci];
-                decl->name[ci] = '\0';
-
-                char *category = decl->name;
-                int idx = array_find(&categories, category);
-                if (idx == -1) idx = array_add(&categories, strdup(category));
-                decl->name[ci] = c;
-
-                if (idx >= procs.count) array_add(&procs, {});
-                array_add(&procs[idx], ProcDecl(decl));
-            } else {
-                array_add(&procs[0], ProcDecl(decl));
-            }
+        if (generate_tests) {
+            emit_test_suites(&f, tu, &test_proc_decls, name, "tests");
         }
 
-        for (int i = 1; i < categories.count; i++) {
-            char *category = categories[i];
-            file_writef(&f, "TestSuite %s__%s__tests[] = {\n", name, category);
-
-            for (auto decl : procs[i]) {
-                const char *test_name = decl.name;
-                for (const char *it = strchr(decl.name, '_'); it; it = strchr(it+1, '_')) {
-                    if (it[1] == '_' && it[2]) {
-                        test_name = it+2;
-                        it += 1;
-                    }
-                }
-
-                file_writef(&f, "\t{ \"%s\", %s },\n", test_name, decl.name);
-            }
-
-            file_write(&f, "};\n\n");
+        if (generate_integration_tests) {
+            if (generate_tests) file_write(&f, "\n");
+            emit_test_suites(&f, tu, &integration_test_proc_decls, name, "integration_tests");
         }
-
-        qsort(
-            categories.data, categories.count, sizeof *categories.data,
-            [](const void *lhs, const void *rhs) -> int
-            {
-                return strcmp(*(char**)lhs, *(char**)rhs);
-            });
-
-
-        file_writef(&f, "TestSuite %s__tests[] = {\n", name);
-        for (int i = 0; i < categories.count; i++) {
-            char *category = categories[i];
-            if (category && *category) {
-                file_write(&f, "\t{ \"");
-                for (char *it = category; *it; it++) {
-                    if (*it == '_' && *(it+1) == '_') {
-                        file_writec(&f, '/');
-                        it++;
-                    } else file_writec(&f, *it);
-                }
-                file_write(&f, "\"");
-
-                file_writef(
-                    &f,
-                    ", nullptr, %s__%s__tests, sizeof(%s__%s__tests)/sizeof(%s__%s__tests[0]) },\n",
-                    name, category,
-                    name, category,
-                    name, category);
-            } else {
-                for (auto decl : procs[i]) {
-                    const char *test_name = decl.name;
-                    for (const char *it = strchr(decl.name, '_'); it; it = strchr(it+1, '_')) {
-                        if (it[1] == '_' && it[2]) {
-                            test_name = it+2;
-                            it += 1;
-                        }
-                    }
-
-                    file_writef(&f, "\t{ \"%s\", %s },\n", test_name, decl.name);
-                }
-            }
-        }
-        file_write(&f, "};\n");
-    }
-
-    if (generate_integration_tests) {
-        char tests_out_path[4096];
-        snprintf(tests_out_path, sizeof tests_out_path, "%s/tests", out_path);
-        std::filesystem::create_directories(tests_out_path);
-
-        char path[4096];
-        snprintf(path, sizeof path, "%s/%.*s.h", tests_out_path, src_name_len, src_filename);
-
-        HashedFile f{};
-        XXH3_INITSTATE(&f.hash);
-        XXH3_128bits_reset_withSeed(&f.hash, META_VERSION);
-
-        defer {
-            XXH128_hash_t hash = XXH3_128bits_digest(&f.hash);
-            XXH128_hash_t curr = hash_file_on_disk(path);
-
-            if (!XXH128_isEqual(hash, curr)) {
-                if (FILE *fp = fopen(path, "w")) {
-                    for (auto *it = &f.stream.head; it; it = it->next) {
-                        fwrite(it->data, 1, it->count, fp);
-                    }
-                    fclose(fp);
-                } else {
-                    FERROR("failed to open file '%s': %s\n", path, strerror(errno));
-                }
-            }
-        };
-
-        emit_include_guard_begin(&f, nullptr, name, "INTEGRATION_TEST");
-        defer { emit_include_guard_end(&f, nullptr, name, "INTEGRATION_TEST"); };
-
-        for (auto decl : integration_test_proc_decls) {
-            emit_proc_decl(&f, tu, decl->cursor, decl->attributes);
-        }
-        file_write(&f, "\n");
-
-        file_writef(&f, "TestSuite %s__integration_tests[] = {\n", name);
-        for (auto decl : integration_test_proc_decls) {
-            file_writef(&f, "\t{ \"%s\", %s, nullptr, 0, true },\n", decl->name, decl->name);
-        }
-        file_write(&f, "};\n");
     }
 
     if (opts.depfile && includes) {
