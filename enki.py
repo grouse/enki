@@ -645,6 +645,7 @@ class Ninja:
 
         # built-in meta target
         meta = self.executable("meta", "$root/tools/enki")
+        flags(meta, "c", "-Werror")
         if self.host_os == "win32": define(meta, "_CRT_SECURE_NO_WARNINGS");
         lib_path(meta, "$builddir")
         include_path(meta, "$root/external/LLVM/include")
