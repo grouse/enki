@@ -1071,6 +1071,8 @@ bool generate_header(const char *out_path, const char *src_path, CXTranslationUn
                 if (!decl->reflect) continue;
                 file_writef(&f, "\nextern %s %s_values[%d];\n", decl->name, decl->name, decl->constants.count);
                 file_writef(&f, "extern String %s_labels[%d];\n", decl->name, decl->constants.count);
+                file_writef(&f, "template<> inline Array<%s> enum_values<%s>() { return ARRAY(%s_values); }\n", decl->name, decl->name, decl->name);
+                file_writef(&f, "template<> inline Array<String> enum_labels<%s>() { return ARRAY(%s_labels); }\n", decl->name, decl->name);
             }
 
             if (generate_flecs) {
