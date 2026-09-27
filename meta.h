@@ -275,6 +275,7 @@ struct CursorAttributes {
     int internal          : 1;
     int test              : 1;
     int integration_test  : 1;
+    int reflect           : 1;
 };
 
 struct ClangVisitorData {
@@ -343,6 +344,7 @@ struct EnumDecl {
 
     CXType type;
     List<ConstantDecl> constants;
+    bool reflect;
 
     EnumDecl *next;
     bool operator==(const char *rhs) { return name && rhs && strcmp(name, rhs) == 0; }
@@ -707,6 +709,24 @@ bool clang_Cursor_isInFile(CXCursor cursor, const char *src, const char *header)
     if (c_filename_sz && strcmp(c_filename_sz, header) == 0) return true;
 
     return false;
+}
+
+bool clang_Cursor_isInExactFile(CXCursor cursor, const char *path)
+{
+    CXString filename_s = clang_Cursor_getFilename(cursor);
+    defer { clang_disposeString(filename_s); };
+
+    const char *filename = clang_getCString(filename_s);
+    if (!filename) return false;
+
+    while (*filename && *path) {
+        if (*filename != *path && !((*filename == '/' && *path == '\\') || (*filename == '\\' && *path == '/'))) {
+            return false;
+        }
+        filename++;
+        path++;
+    }
+    return !*filename && !*path;
 }
 
 CXSourceRange clang_Cursor_getArgumentRange(
