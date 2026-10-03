@@ -787,6 +787,7 @@ bool has_flecs_meta(FieldDecl *field)
     for (auto meta : field->meta) {
         if (strcmp(meta->name, "EcsRequiredId") == 0) return true;
         if (strcmp(meta->name, "ColorRgb") == 0) return true;
+        if (strcmp(meta->name, "AssetRel") == 0) return true;
     }
 
     return false;
@@ -846,6 +847,14 @@ void emit_flecs_meta(HashedFile *f, StructDecl *decl)
                 file_writef(f, "\t\tecs_add_id(ecs, member, ");
                 emit_ecs_name(f, meta->name);
                 file_writef(f, ");\n");
+            } else if (strcmp(meta->name, "AssetRel") == 0) {
+                if (clang_strcmp(field_t_s, "AssetHandle") != 0) {
+                    FERROR("META(AssetRel) on %s::%s requires an AssetHandle field", decl->name, field->name);
+                }
+                if (meta->args.count != 1) {
+                    FERROR("META(AssetRel) on %s::%s requires exactly one asset type", decl->name, field->name);
+                }
+                file_writef(f, "\t\tecs_set(ecs, member, AssetRel{ jl_typeid(%s) });\n", meta->args.head.next->name);
             }
         }
 
