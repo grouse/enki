@@ -669,30 +669,6 @@ void emit_include_guard_end(HashedFile *f, const char *prefix, const char *name,
     file_writef(f, "\n#endif // %s_H\n", guard);
 }
 
-template<typename T>
-void emit_decls(HashedFile *f, List<T> decls, const char *fmt)
-{
-    if (!decls) return;
-
-    for (auto decl : decls) {
-        file_writef(f, fmt, decl->name);
-        file_write(f, "\n");
-    }
-}
-
-template<typename T>
-void emit_decls_ln(HashedFile *f, List<T> decls, const char *fmt)
-{
-    if (!decls) return;
-    file_write(f, "\n");
-    emit_decls(f, decls, fmt);
-}
-
-void emit_include(HashedFile *f, const char *path)
-{
-    file_writef(f, "#include \"%s\"\n", path);
-}
-
 void emit_flecs_component_members(HashedFile *f, StructDecl *decl)
 {
     for (auto field : decl->fields) {

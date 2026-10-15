@@ -364,7 +364,36 @@ extern const char *debug_trace_file;
 extern const char *debug_trace_cursor;
 extern int debug_print_enabled;
 
+void file_write_bytes(HashedFile *f, const void *data, int size);
+void file_write(HashedFile *f, const char *str);
+void file_writec(HashedFile *f, char c);
+void file_writef(HashedFile *f, const char *fmt, ...);
+
 bool parse_meta_attr(List<MetaDecl> *dst, const char *text);
+
+template<typename T>
+void emit_decls(HashedFile *f, List<T> decls, const char *fmt)
+{
+    if (!decls) return;
+
+    for (auto decl : decls) {
+        file_writef(f, fmt, decl->name);
+        file_write(f, "\n");
+    }
+}
+
+template<typename T>
+void emit_decls_ln(HashedFile *f, List<T> decls, const char *fmt)
+{
+    if (!decls) return;
+    file_write(f, "\n");
+    emit_decls(f, decls, fmt);
+}
+
+void emit_include(HashedFile *f, const char *path)
+{
+    file_writef(f, "#include \"%s\"\n", path);
+}
 
 #endif // META_H_
 
