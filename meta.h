@@ -364,6 +364,8 @@ extern const char *debug_trace_file;
 extern const char *debug_trace_cursor;
 extern int debug_print_enabled;
 
+bool parse_meta_attr(List<MetaDecl> *dst, const char *text);
+
 #endif // META_H_
 
 #if defined(META_IMPL) && !defined(META_IMPL_ONCE_)
@@ -899,6 +901,55 @@ CXChildVisitResult clang_debugDumpChildren(
 
     clang_visitChildren(cursor, clang_debugDumpChildren, client_data);
     return CXChildVisit_Continue;
+}
+
+bool parse_meta_attr(List<MetaDecl> *dst, const char *text)
+{
+    const char *p = text;
+    if (strncmp(p, "meta(", 5) != 0) return false;
+    p += 5;
+
+    while (*p && *p != ')') {
+        while (is_whitespace(*p) || *p == ',') p++;
+        if (!(is_alpha(*p) || *p == '_')) return false;
+
+        const char *name = p;
+        while (is_alpha(*p) || is_numeric(*p) || *p == '_') p++;
+
+        size_t name_len = (size_t)(p-name);
+        char *name_sz = (char*)malloc(name_len+1);
+        memcpy(name_sz, name, name_len);
+        name_sz[name_len] = '\0';
+
+        MetaDecl *meta = list_push(dst, name_sz);
+
+        while (is_whitespace(*p)) p++;
+
+        if (*p == '{' && *p++) {
+            while (*p && *p != '}') {
+                while (is_whitespace(*p) || *p == ',') p++;
+                if (*p == '}') break;
+
+                const char *arg = p;
+                while (is_alpha(*p) || is_numeric(*p) || *p == '_') p++;
+                if (p == arg) return false;
+
+                size_t arg_len = (size_t)(p-arg);
+                char *arg_sz   = (char*)malloc(arg_len+1);
+                memcpy(arg_sz, arg, arg_len);
+                arg_sz[arg_len] = '\0';
+
+                list_push(&meta->args, arg_sz);
+            }
+
+            if (*p++ != '}') return false;
+        }
+
+        while (is_whitespace(*p)) p++;
+        if (*p == ',') p++;
+    }
+
+    return *p == ')';
 }
 
 #endif // defined(META_IMPL_) && !defined(META_IMPL_ONCE_)
