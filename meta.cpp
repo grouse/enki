@@ -646,29 +646,6 @@ CXChildVisitResult clang_visitor(
     return CXChildVisit_Continue;
 }
 
-void emit_include_guard_begin(HashedFile *f, const char *prefix, const char *name, const char *suffix)
-{
-    char guard[4096];
-    if (prefix && suffix) snprintf(guard, sizeof guard, "%s_%s_%s", prefix, name, suffix);
-    else if (prefix) snprintf(guard, sizeof guard, "%s_%s", prefix, name);
-    else if (suffix) snprintf(guard, sizeof guard, "%s_%s", name, suffix);
-    else snprintf(guard, sizeof guard, "%s", name);
-
-    file_writef(f, "#ifndef %s_H\n", guard);
-    file_writef(f, "#define %s_H\n\n", guard);
-}
-
-void emit_include_guard_end(HashedFile *f, const char *prefix, const char *name, const char *suffix)
-{
-    char guard[4096];
-    if (prefix && suffix) snprintf(guard, sizeof guard, "%s_%s_%s", prefix, name, suffix);
-    else if (prefix) snprintf(guard, sizeof guard, "%s_%s", prefix, name);
-    else if (suffix) snprintf(guard, sizeof guard, "%s_%s", name, suffix);
-    else snprintf(guard, sizeof guard, "%s", name);
-
-    file_writef(f, "\n#endif // %s_H\n", guard);
-}
-
 void emit_flecs_component_members(HashedFile *f, StructDecl *decl)
 {
     for (auto field : decl->fields) {

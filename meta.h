@@ -371,6 +371,10 @@ void file_writef(HashedFile *f, const char *fmt, ...);
 
 bool parse_meta_attr(List<MetaDecl> *dst, const char *text);
 
+void emit_include(HashedFile *f, const char *path);
+void emit_include_guard_begin(HashedFile *f, const char *prefix, const char *name, const char *suffix);
+void emit_include_guard_end(HashedFile *f, const char *prefix, const char *name, const char *suffix);
+
 template<typename T>
 void emit_decls(HashedFile *f, List<T> decls, const char *fmt)
 {
@@ -388,11 +392,6 @@ void emit_decls_ln(HashedFile *f, List<T> decls, const char *fmt)
     if (!decls) return;
     file_write(f, "\n");
     emit_decls(f, decls, fmt);
-}
-
-void emit_include(HashedFile *f, const char *path)
-{
-    file_writef(f, "#include \"%s\"\n", path);
 }
 
 #endif // META_H_
@@ -980,5 +979,34 @@ bool parse_meta_attr(List<MetaDecl> *dst, const char *text)
 
     return *p == ')';
 }
+
+void emit_include(HashedFile *f, const char *path)
+{
+    file_writef(f, "#include \"%s\"\n", path);
+}
+
+void emit_include_guard_begin(HashedFile *f, const char *prefix, const char *name, const char *suffix)
+{
+    char guard[4096];
+    if (prefix && suffix) snprintf(guard, sizeof guard, "%s_%s_%s", prefix, name, suffix);
+    else if (prefix) snprintf(guard, sizeof guard, "%s_%s", prefix, name);
+    else if (suffix) snprintf(guard, sizeof guard, "%s_%s", name, suffix);
+    else snprintf(guard, sizeof guard, "%s", name);
+
+    file_writef(f, "#ifndef %s_H\n", guard);
+    file_writef(f, "#define %s_H\n\n", guard);
+}
+
+void emit_include_guard_end(HashedFile *f, const char *prefix, const char *name, const char *suffix)
+{
+    char guard[4096];
+    if (prefix && suffix) snprintf(guard, sizeof guard, "%s_%s_%s", prefix, name, suffix);
+    else if (prefix) snprintf(guard, sizeof guard, "%s_%s", prefix, name);
+    else if (suffix) snprintf(guard, sizeof guard, "%s_%s", name, suffix);
+    else snprintf(guard, sizeof guard, "%s", name);
+
+    file_writef(f, "\n#endif // %s_H\n", guard);
+}
+
 
 #endif // defined(META_IMPL_) && !defined(META_IMPL_ONCE_)
