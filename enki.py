@@ -1192,9 +1192,14 @@ def generate_vscode_config(sourcedir, configs, builds, debugger="lldb", ninja="n
     print(f"wrote {tasks_path}")
 
     # --- launch.json ---
+    lldb_settings = None
+    if os.path.isfile(os.path.join(sourcedir, "debug/lldb/.lldbinit")):
+        lldb_settings = {
+            "initCommands": ['command source "${workspaceFolder}/debug/lldb/.lldbinit"'],
+        }
     debugger_info = {
         "gdb":    ("gdb",    "gdb",    "target",  None),
-        "lldb":   ("lldb",   "lldb",   "program", None),
+        "lldb":   ("lldb",   "lldb",   "program", lldb_settings),
         "cppdbg": ("cppdbg", "cppdbg", "program", {
             "MIMode": "gdb",
             "args": [],
